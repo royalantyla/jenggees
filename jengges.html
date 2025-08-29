@@ -158,7 +158,7 @@
             <div style="text-align:center;margin-top:6px"><button id="btnDrawDeck" class="btn green">Ambil 1</button></div>
           </div>
           <div class="panel">
-            <div class="sub">Discard (7 terbaru) — Kartu baru di KIRI, tombol ambil 3 terbaru</div>
+            <div class="sub">Discard (7 terbaru) — Kartu baru di KIRI, max ambil berdasarkan jumlah pemain</div>
             <div id="discardStrip" class="gridstrip" style="margin-top:6px"></div>
             <div id="discardCtl" class="gridstrip" style="margin-top:6px"></div>
           </div>
@@ -172,13 +172,13 @@
             <div class="sub"><b>History Buang & Aksi</b></div>
             <textarea id="history" readonly style="height:120px;"></textarea>
           </div>
+          </div>
         </div>
       </div>
-    </div>
 
     <!-- Bottom Section: Player Hand (Full Width) -->
     <div class="panel" style="margin-top:16px">
-      <div class="sub"><b id="handTitle">Tangan</b> — Pilih 1 utk buang, 3+ utk meld • Drag untuk menata</div>
+        <div class="sub"><b id="handTitle">Tangan</b> — Pilih 1 utk buang, 3+ utk meld • Drag untuk menata</div>
       <div id="hand" class="cards" style="margin-top:8px; min-height:160px; padding:12px; border:2px solid #e5e7eb; border-radius:12px; background:#f8fafc;"></div>
       
       <!-- Action Buttons Row -->
@@ -194,11 +194,11 @@
         <div class="panel" style="padding:8px">
           <div class="sub" style="margin-bottom:6px"><b>Aksi Meld</b></div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
-            <button class="btn" id="btnRunNum">Run Angka</button>
-            <button class="btn" id="btnRunJQK">Run J-Q-K</button>
-            <button class="btn gray" id="btnSetA">Set As</button>
-          </div>
+          <button class="btn" id="btnRunNum">Run Angka</button>
+          <button class="btn" id="btnRunJQK">Run J-Q-K</button>
+          <button class="btn gray" id="btnSetA">Set As</button>
         </div>
+      </div>
         
         <!-- Sort Actions -->
         <div class="panel" style="padding:8px">
@@ -911,6 +911,83 @@ function pickNonMeldCard(hand){
   return copy[0] || null;
 }
 
+// Fungsi baru: Cek apakah semua kartu di tangan bisa di-meld
+function canAllCardsBeInMelds(hand) {
+  if(hand.length === 0) return true;
+  
+  // Coba semua kombinasi meld yang mungkin
+  const possibleMelds = [];
+  
+  // Cari semua kemungkinan number runs (3-6 kartu)
+  for(let L=3; L<=Math.min(6, hand.length); L++) {
+    const combinations = combos(hand, L, L);
+    for(const combo of combinations) {
+      const meld = numberRun(combo);
+      if(meld) {
+        possibleMelds.push({type: 'number', cards: combo, meld: meld});
+      }
+    }
+  }
+  
+  // Cari semua kemungkinan JQK runs
+  if(hand.length >= 3) {
+    const jqkCombos = combos(hand, 3, 3);
+    for(const combo of jqkCombos) {
+      const meld = isJQKRun(combo);
+      if(meld) {
+        possibleMelds.push({type: 'jqk', cards: combo, meld: meld});
+      }
+    }
+  }
+  
+  // Cari semua kemungkinan Ace sets
+  const aces = hand.filter(c => c.rank === 'A');
+  if(aces.length >= 3) {
+    for(let L=3; L<=Math.min(4, aces.length); L++) {
+      const aceCombos = combos(aces, L, L);
+      for(const combo of aceCombos) {
+        const meld = isAceSet(combo);
+        if(meld) {
+          possibleMelds.push({type: 'ace', cards: combo, meld: meld});
+        }
+      }
+    }
+  }
+  
+  // Coba semua kombinasi meld untuk melihat apakah bisa habis
+  return canMeldAllCards(hand, possibleMelds, []);
+}
+
+// Fungsi rekursif untuk cek apakah bisa meld semua kartu
+function canMeldAllCards(remainingCards, possibleMelds, usedMelds) {
+  if(remainingCards.length === 0) return true; // Semua kartu sudah di-meld
+  
+  for(let i = 0; i < possibleMelds.length; i++) {
+    const meld = possibleMelds[i];
+    
+    // Cek apakah meld ini menggunakan kartu yang masih tersedia
+    const meldCardIds = meld.cards.map(c => c.id);
+    const canUseMeld = meldCardIds.every(id => 
+      remainingCards.some(c => c.id === id)
+    );
+    
+    if(canUseMeld) {
+      // Gunakan meld ini, hapus kartu yang digunakan
+      const newRemaining = remainingCards.filter(c => 
+        !meldCardIds.includes(c.id)
+      );
+      const newUsedMelds = usedMelds.concat([meld]);
+      
+      // Rekursif cek sisa kartu
+      if(canMeldAllCards(newRemaining, possibleMelds, newUsedMelds)) {
+        return true;
+      }
+    }
+  }
+  
+  return false; // Tidak bisa meld semua kartu
+}
+
   let c3=combos(hand,3,3); for(const g of c3){ const x=isJQKRun(g); if(x) return {kind:'jqk',cards:g}; }
   const aces=hand.filter(c=>c.rank==='A');
   if(aces.length>=3){ const as=combos(aces,3,4); for(const g of as){ const x=isAceSet(g); if(x) return {kind:'aces',cards:g}; } }
@@ -945,6 +1022,13 @@ function takeDiscard(n){
   if(isMultiplayer && cur!==myPlayerIndex) return;
   if(!isMultiplayer && cur!==HUMAN_IDX) return;
   
+  // VALIDASI BARU: Cek batas maksimal kartu berdasarkan jumlah pemain
+  const maxAllowed = getMaxTakeableCards();
+  if(n > maxAllowed) {
+    setHint(`Hanya boleh ambil maksimal ${maxAllowed} kartu discard untuk ${players.length} pemain.`);
+    return;
+  }
+  
   const slice=discard.slice(discard.length-n);
   const take=slice.map(e=>e.card);
   const reqIds=take.map(c=>c.id);
@@ -952,6 +1036,7 @@ function takeDiscard(n){
   const handSet = new Set(me.hand.map(c=>c.id));
   const pool = me.hand.concat(take);
   const allowAce = !!me.hasMelded; // Ace set boleh hanya jika sudah pernah meld
+  
   if(!existsNumberRunUsing(reqIds, pool, handSet, allowAce)){
     // Kalau gagal tapi akan berhasil jika Ace-set diizinkan, tampilkan pesan khusus
     if(!allowAce && existsNumberRunUsing(reqIds, pool, handSet, true)){
@@ -961,6 +1046,18 @@ function takeDiscard(n){
     }
     return;
   }
+  
+  // VALIDASI KRITIS: Jika pemain hanya punya sedikit kartu, pastikan ada kartu untuk dibuang
+  const finalHandSize = me.hand.length + take.length;
+  if(finalHandSize <= 3) {
+    // Cek apakah setelah meld masih ada kartu untuk dibuang
+    const wouldHaveCardToDiscard = checkCanDiscardAfterMeld(pool, reqIds, handSet, allowAce);
+    if(!wouldHaveCardToDiscard) {
+      setHint('Tidak bisa ambil: setelah meld tidak ada kartu untuk dibuang. Harus menyisakan minimal 1 kartu.');
+      return;
+    }
+  }
+  
   discard=discard.slice(0,discard.length-n);
   curPl().hand=curPl().hand.concat(take);
   hasDrawn=true; mustUseDiscard=true; lastDrawFromDiscard=true; usedDiscardInRun=false;
@@ -977,6 +1074,77 @@ function takeDiscard(n){
   
   renderAll(); setHint('Wajib pakai minimal 1 kartu discard pada RUN sebelum buang.');
 }
+
+// Fungsi baru: Cek apakah setelah meld masih ada kartu untuk dibuang
+function checkCanDiscardAfterMeld(pool, reqIds, handSet, allowAceSet) {
+  // Cari semua kemungkinan meld yang menggunakan kartu discard
+  const possibleMelds = [];
+  
+  // Number runs (3-6)
+  for(let L=3; L<=Math.min(6, pool.length); L++) {
+    const combinations = combos(pool, L, L);
+    for(const combo of combinations) {
+      // Harus menggunakan minimal 1 kartu discard
+      const usesDiscard = combo.some(c => reqIds.includes(c.id));
+      // Harus menggunakan minimal 2 kartu dari tangan
+      const handCards = combo.filter(c => handSet.has(c.id));
+      
+      if(usesDiscard && handCards.length >= 2) {
+        const meld = numberRun(combo);
+        if(meld) {
+          possibleMelds.push({cards: combo, type: 'number'});
+        }
+      }
+    }
+  }
+  
+  // JQK runs
+  if(pool.length >= 3) {
+    const jqkCombos = combos(pool, 3, 3);
+    for(const combo of jqkCombos) {
+      const usesDiscard = combo.some(c => reqIds.includes(c.id));
+      const handCards = combo.filter(c => handSet.has(c.id));
+      
+      if(usesDiscard && handCards.length >= 2) {
+        const meld = isJQKRun(combo);
+        if(meld) {
+          possibleMelds.push({cards: combo, type: 'jqk'});
+        }
+      }
+    }
+  }
+  
+  // Ace sets (hanya jika sudah pernah meld)
+  if(allowAceSet) {
+    const aces = pool.filter(c => c.rank === 'A');
+    if(aces.length >= 3) {
+      for(let L=3; L<=Math.min(4, aces.length); L++) {
+        const aceCombos = combos(aces, L, L);
+        for(const combo of aceCombos) {
+          const usesDiscard = combo.some(c => reqIds.includes(c.id));
+          const handCards = combo.filter(c => handSet.has(c.id));
+          
+          if(usesDiscard && handCards.length >= 2) {
+            const meld = isAceSet(combo);
+            if(meld) {
+              possibleMelds.push({cards: combo, type: 'ace'});
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // Cek apakah ada meld yang menyisakan minimal 1 kartu untuk dibuang
+  for(const meld of possibleMelds) {
+    const remainingCards = pool.filter(c => !meld.cards.some(m => m.id === c.id));
+    if(remainingCards.length >= 1) {
+      return true; // Ada kartu tersisa untuk dibuang
+    }
+  }
+  
+  return false; // Tidak ada cara untuk menyisakan kartu untuk dibuang
+}
 function tryMeld(kind,cards){
   if(roundOver) return false;
   if(isMultiplayer && cur!==myPlayerIndex) return false;
@@ -986,18 +1154,65 @@ function tryMeld(kind,cards){
   if(sel.length<3 && kind!=='aces') { setHint('Pilih kartu untuk meld.'); return false; }
   let meld = (kind==='jqk')?isJQKRun(sel) : (kind==='aces')?isAceSet(sel) : numberRun(sel);
   if(!meld){ setHint('Kombinasi tidak valid.'); return false; }
+  
   const calonSisa = me.hand.length - sel.length;
-  if(calonSisa===0 && !lastDrawFromDiscard){ setHint('Tidak boleh habis kartu jika ambil dari Deck.'); return false; }
-  if(!lastDrawFromDiscard && calonSisa<2){ setHint('Jika ambil dari Deck, tidak boleh meld yang menyisakan < 2 kartu. Buang dulu 1 kartu sehingga tetap memegang ≥ 3 di awal giliran berikutnya.'); return false; }
-  // Jika mau habis kartu dan ambilnya dari Discard: WAJIB pakai kartu discard DI RUN angka
-  if(calonSisa===0 && lastDrawFromDiscard){
-    const usesDiscardInRun = (kind==='number') && sel.some(c=>drawnIds[c.id]);
-    if(!usesDiscardInRun){ setHint('Tidak bisa menutup: kartu discard harus dipakai dalam RUN angka.'); return false; }
+  
+  // ATURAN PENTING: Jika ambil dari Deck, tidak boleh habis kartu
+  if(calonSisa===0 && !lastDrawFromDiscard){ 
+    setHint('Tidak boleh habis kartu jika ambil dari Deck.'); 
+    return false; 
   }
-  if(kind==='number'){ for(const c of sel){ if(drawnIds[c.id]){ usedDiscardInRun=true; lastUsedDrawnId=c.id; lastUsedDrawnRank=c.rank; const own=drawnOwnerMap[c.id]; if(own!=null) usedDrawnForClose.push({owner:own, rank:c.rank}); } } }
-  if(kind!=='number'){ for(const c of sel){ if(drawnIds[c.id]){ const own=drawnOwnerMap[c.id]; if(own!=null) usedDrawnForClose.push({owner:own, rank:c.rank}); } } }
+  
+  // ATURAN PENTING: Jika ambil dari Deck, harus menyisakan minimal 2 kartu untuk buang
+  if(!lastDrawFromDiscard && calonSisa<2){ 
+    setHint('Jika ambil dari Deck, tidak boleh meld yang menyisakan < 2 kartu. Buang dulu 1 kartu sehingga tetap memegang ≥ 3 di awal giliran berikutnya.'); 
+    return false; 
+  }
+  
+  // ATURAN KETAT: Jika ambil dari Discard, WAJIB buang 1 kartu dulu sebelum bisa menutup
+  if(lastDrawFromDiscard && calonSisa === 0) {
+    // TIDAK BOLEH langsung menutup setelah ambil discard
+    // Harus buang 1 kartu dulu untuk memenuhi aturan Remi yang benar
+    setHint('TIDAK BOLEH menutup langsung setelah ambil discard. Harus buang 1 kartu terlebih dahulu!');
+    return false;
+  }
+  
+  // ATURAN BARU: Jika ambil dari Discard dan menyisakan kartu, harus buang dulu
+  if(lastDrawFromDiscard && calonSisa > 0 && !mustUseDiscard) {
+    setHint('Setelah ambil dari Discard, Anda harus buang 1 kartu terlebih dahulu sebelum bisa meld lagi.');
+    return false;
+  }
+  
+  // Validasi penggunaan kartu discard dalam meld
+  if(kind==='number'){ 
+    for(const c of sel){ 
+      if(drawnIds[c.id]){ 
+        usedDiscardInRun=true; 
+        lastUsedDrawnId=c.id; 
+        lastUsedDrawnRank=c.rank; 
+        const own=drawnOwnerMap[c.id]; 
+        if(own!=null) usedDrawnForClose.push({owner:own, rank:c.rank}); 
+      } 
+    } 
+  }
+  if(kind!=='number'){ 
+    // PERBAIKAN: JQK dan Ace sets juga harus menandai penggunaan discard
+    for(const c of sel){ 
+      if(drawnIds[c.id]){ 
+        usedDiscardInRun=true; 
+        lastUsedDrawnId=c.id; 
+        lastUsedDrawnRank=c.rank; 
+        const own=drawnOwnerMap[c.id]; 
+        if(own!=null) usedDrawnForClose.push({owner:own, rank:c.rank}); 
+      } 
+    } 
+  }
+  
   const ids={}; sel.forEach(c=>ids[c.id]=1);
-  me.hand=me.hand.filter(c=>!ids[c.id]); me.melds.push(meld); me.hasMelded=true; if(meld.type!=='ace-set') me.hasNonAceMeld=true;
+  me.hand=me.hand.filter(c=>!ids[c.id]); 
+  me.melds.push(meld); 
+  me.hasMelded=true; 
+  if(meld.type!=='ace-set') me.hasNonAceMeld=true;
   selected={}; 
   
   const meldType = meld.type==='number-run'?'number-run':meld.type==='jqk-run'?'run JQK':'set As';
@@ -1009,7 +1224,12 @@ function tryMeld(kind,cards){
   }
   
   renderAll();
-  if(me.hand.length===0 && lastDrawFromDiscard && usedDiscardInRun){ endRound({closer:cur}); }
+  
+  // Cek apakah bisa menutup (habis kartu dengan aturan yang benar)
+  if(me.hand.length===0 && lastDrawFromDiscard && usedDiscardInRun){ 
+    endRound({closer:cur}); 
+  }
+  
   return true;
 }
 function discardSel(){ if(actionBusy) return; actionBusy=true;
@@ -1043,7 +1263,16 @@ function discardSel(){ if(actionBusy) return; actionBusy=true;
 }
 function nextTurn(){ 
   cur=(cur+1)%players.length; 
-  hasDrawn=false; mustUseDiscard=false; drawnIds={}; usedDiscardInRun=false; selected={}; lastDrawFromDiscard=false; 
+  hasDrawn=false; 
+  mustUseDiscard=false; 
+  drawnIds={}; 
+  drawnOwnerMap={}; 
+  usedDiscardInRun=false; 
+  selected={}; 
+  lastDrawFromDiscard=false; 
+  usedDrawnForClose=[];
+  lastUsedDrawnId=null; 
+  lastUsedDrawnRank=null;
   
   if(isMultiplayer) {
     broadcastGameState();
@@ -1062,7 +1291,14 @@ function nextTurn(){
 }
 
 function meldPoints(p){ let sum=0; for(const m of p.melds){ if(m.type==='number-run'){ sum += m.cards.length*5; } else if(m.type==='jqk-run'){ sum += m.cards.length*10; } else if(m.type==='ace-set'){ sum += m.cards.length*15; } } return sum; }
-function deadPenalty(p){ return p.hand.reduce((s,c)=>s+baseValue(c),0); }
+function deadPenalty(p){ 
+  return p.hand.reduce((sum, card) => {
+    if (isWildCard(card)) return sum + 25;  // Wild = 25 pts penalty
+    if (card.rank === 'A') return sum + 15;  // As = 15 pts penalty
+    if (['J', 'Q', 'K'].includes(card.rank)) return sum + 10;  // JQK = 10 pts penalty
+    return sum + 5;  // Angka = 5 pts penalty
+  }, 0); 
+}
 
 function applyCloseBonusIfAny(pts, info){
   // Jika penutup mengambil dari discard dan memakai kartu discard di run,
@@ -1142,11 +1378,22 @@ function showScoreboard(pts, info) {
   const box=document.getElementById('scoreRows');
   if (!box) return;
   
+  // Header tabel utama
   box.innerHTML='<div class="srow head"><div>Pemain</div><div>Skor Ronde</div><div>Total</div></div>';
+  
   players.forEach((p,i)=>{
     const row=document.createElement('div'); row.className='srow';
     row.innerHTML='<div>'+p.name+(i===info.closer?' <span class="sub" style="color:#16a34a">(menutup)</span>':'')+'</div><div>'+pts[i]+'</div><div>'+totalScores[i]+'</div>';
     box.appendChild(row);
+    
+    // Tambah detail kartu untuk setiap pemain
+    const detailRow = document.createElement('div');
+    detailRow.className = 'srow detail-row';
+    detailRow.style.cssText = 'background:#f8f9fa; border-top:1px solid #e5e7eb; padding:12px;';
+    
+    const playerDetail = createPlayerDetailHTML(p, i, pts[i]);
+    detailRow.innerHTML = '<div style="grid-column: 1 / -1;">' + playerDetail + '</div>';
+    box.appendChild(detailRow);
   });
   
   const roundInfoEl = document.getElementById('roundInfo');
@@ -1158,6 +1405,101 @@ function showScoreboard(pts, info) {
   if (overlayEl) {
     overlayEl.style.display='flex';
   }
+}
+
+// Fungsi helper untuk membuat detail HTML setiap pemain
+function createPlayerDetailHTML(player, playerIndex, roundScore) {
+  let html = '<div style="font-size:13px; line-height:1.4;">';
+  
+  // Melds
+  html += '<div style="margin-bottom:8px;"><strong>Melds:</strong></div>';
+  if (player.melds && player.melds.length > 0) {
+    html += '<div style="margin-left:12px; margin-bottom:12px;">';
+    player.melds.forEach((meld, idx) => {
+      const meldCards = meld.cards.map(c => formatCard(c)).join(' ');
+      const meldType = getMeldTypeName(meld);
+      const meldPoints = calculateMeldPoints(meld.cards);
+      html += `<div style="margin-bottom:4px;">• ${meldType}: ${meldCards} <span style="color:#16a34a; font-weight:600;">(${meldPoints} pts)</span></div>`;
+    });
+    html += '</div>';
+  } else {
+    html += '<div style="margin-left:12px; margin-bottom:12px; color:#6b7280;">Tidak ada meld</div>';
+  }
+  
+  // Deadwood
+  const deadwoodCards = getDeadwoodCards(player);
+  const deadwoodPoints = calculateDeadwoodPoints(deadwoodCards);
+  html += '<div style="margin-bottom:8px;"><strong>Deadwood:</strong></div>';
+  if (deadwoodCards.length > 0) {
+    html += '<div style="margin-left:12px; margin-bottom:12px;">';
+    deadwoodCards.forEach(card => {
+      let cardPenalty;
+      if (isWildCard(card)) cardPenalty = 25;
+      else if (card.rank === 'A') cardPenalty = 15;
+      else if (['J', 'Q', 'K'].includes(card.rank)) cardPenalty = 10;
+      else cardPenalty = 5;
+      
+      html += `${formatCard(card)}(-${cardPenalty}) `;
+    });
+    html += `<span style="color:#ef4444; font-weight:600;">Total: -${deadwoodPoints} pts</span></div>`;
+  } else {
+    html += '<div style="margin-left:12px; margin-bottom:12px; color:#16a34a;">Tidak ada deadwood (Perfect!)</div>';
+  }
+  
+  // Total calculation
+  const meldTotal = player.melds ? player.melds.reduce((sum, meld) => sum + calculateMeldPoints(meld.cards), 0) : 0;
+  html += `<div style="border-top:1px solid #d1d5db; padding-top:8px; font-weight:600;">`;
+  html += `Total: ${meldTotal} pts (melds) - ${deadwoodPoints} pts (deadwood) = <span style="color:${roundScore >= 0 ? '#16a34a' : '#ef4444'};">${roundScore} pts</span>`;
+  html += '</div>';
+  
+  html += '</div>';
+  return html;
+}
+
+// Helper functions
+function formatCard(card) {
+  const suitSymbols = {'S':'♠', 'H':'♥', 'D':'♦', 'C':'♣'};
+  const symbol = suitSymbols[card.suit] || card.suit;
+  return `${card.rank}${symbol}`;
+}
+
+function getMeldTypeName(meld) {
+  if (meld.type === 'number-run') return 'Number Run';
+  if (meld.type === 'jqk-run') return 'JQK Run';
+  if (meld.type === 'ace-set') return 'Ace Set';
+  return 'Unknown';
+}
+
+function calculateMeldPoints(cards) {
+  return cards.reduce((sum, card) => {
+    if (card.rank === 'A') return sum + 15;  // As = 15 pts
+    if (['J', 'Q', 'K'].includes(card.rank)) return sum + 10;  // JQK = 10 pts
+    return sum + 5;  // Angka = 5 pts per kartu
+  }, 0);
+}
+
+function getDeadwoodCards(player) {
+  if (!player.hand) return [];
+  
+  // Kartu yang sudah di-meld
+  const meldedCardIds = new Set();
+  if (player.melds) {
+    player.melds.forEach(meld => {
+      meld.cards.forEach(card => meldedCardIds.add(card.id));
+    });
+  }
+  
+  // Kartu yang tersisa (deadwood)
+  return player.hand.filter(card => !meldedCardIds.has(card.id));
+}
+
+function calculateDeadwoodPoints(deadwoodCards) {
+  return deadwoodCards.reduce((sum, card) => {
+    if (isWildCard(card)) return sum + 25;  // Wild = -25 pts (penalty)
+    if (card.rank === 'A') return sum + 15;  // As = -15 pts (penalty)
+    if (['J', 'Q', 'K'].includes(card.rank)) return sum + 10;  // JQK = -10 pts (penalty)
+    return sum + 5;  // Angka = -5 pts per kartu (penalty)
+  }, 0);
 }
 function endRoundPenalty(offender){
   roundOver=true; 
@@ -1201,11 +1543,37 @@ function showPenaltyScoreboard(pts, offender) {
   const box=document.getElementById('scoreRows');
   if (!box) return;
   
+  // Header tabel utama
   box.innerHTML='<div class="srow head"><div>Pemain</div><div>Skor Ronde</div><div>Total</div></div>';
+  
   players.forEach((p,i)=>{
     const row=document.createElement('div'); row.className='srow';
     row.innerHTML='<div>'+p.name+(i===offender?' <span class="sub" style="color:#ef4444">(buang WILD)</span>':'')+'</div><div>'+pts[i]+'</div><div>'+totalScores[i]+'</div>';
     box.appendChild(row);
+    
+    // Tambah detail kartu untuk setiap pemain (kecuali yang kena penalty)
+    if (i !== offender) {
+      const detailRow = document.createElement('div');
+      detailRow.className = 'srow detail-row';
+      detailRow.style.cssText = 'background:#f8f9fa; border-top:1px solid #e5e7eb; padding:12px;';
+      
+      const playerDetail = createPlayerDetailHTML(p, i, pts[i]);
+      detailRow.innerHTML = '<div style="grid-column: 1 / -1;">' + playerDetail + '</div>';
+      box.appendChild(detailRow);
+    } else {
+      // Detail khusus untuk pemain yang kena penalty
+      const detailRow = document.createElement('div');
+      detailRow.className = 'srow detail-row';
+      detailRow.style.cssText = 'background:#fef2f2; border-top:1px solid #fecaca; padding:12px;';
+      
+      let html = '<div style="font-size:13px; line-height:1.4; color:#dc2626;">';
+      html += '<div><strong>Penalty: Membuang kartu WILD</strong></div>';
+      html += '<div style="margin-top:8px;">Kartu di tangan dan meld tidak dihitung. Penalty: -250 pts</div>';
+      html += '</div>';
+      
+      detailRow.innerHTML = '<div style="grid-column: 1 / -1;">' + html + '</div>';
+      box.appendChild(detailRow);
+    }
   });
   
   const roundInfoEl = document.getElementById('roundInfo');
@@ -1250,7 +1618,7 @@ async function botTurn(){
   let tries=0, maxT=document.getElementById('limit1').checked?1:3;
   while(tries<maxT){
     const plan=anyMeld(me.hand); if(!plan) break;
-    if(plan.kind==='number'){ for(const c of plan.cards){ if(drawnIds[c.id]){ usedDiscardInRun=true; lastUsedDrawnId=c.id; lastUsedDrawnRank=c.rank; } } }
+    if(plan.kind==='number' || plan.kind==='jqk'){ for(const c of plan.cards){ if(drawnIds[c.id]){ usedDiscardInRun=true; lastUsedDrawnId=c.id; lastUsedDrawnRank=c.rank; } } }
     const ids={}; plan.cards.forEach(c=>ids[c.id]=1);
     me.hand=me.hand.filter(c=>!ids[c.id]);
     const meld = (plan.kind==='jqk')?isJQKRun(plan.cards) :(plan.kind==='aces')?isAceSet(plan.cards) :numberRun(plan.cards);
@@ -1311,6 +1679,9 @@ function renderStock(){
   strip.style.gridTemplateColumns = 'repeat(' + totalCols + ', ' + per + 'px)';
   ctl.style.gridTemplateColumns   = 'repeat(' + totalCols + ', ' + per + 'px)';
   
+  // ATURAN BARU: Maksimal kartu yang boleh diambil berdasarkan jumlah pemain
+  const maxTakeableCards = getMaxTakeableCards();
+  
   // Render kartu (kartu BARU di KIRI)
   for(let i=0;i<cards.length;i++){
     const c = cards[i];
@@ -1319,8 +1690,8 @@ function renderStock(){
     strip.appendChild(slotTop);
     const slot=document.createElement('div'); slot.className='slot';
     
-    // Button "Ambil" untuk 3 kartu terbaru (posisi 0, 1, 2 dari kiri)
-    if(i <= 2){
+    // Button "Ambil" hanya untuk kartu yang diizinkan berdasarkan jumlah pemain
+    if(i < maxTakeableCards){
       const n = i + 1; // 1/2/3 kartu dari atas
       const b=document.createElement('button'); b.className='btn amber min'; b.textContent='Ambil ' + n;
       b.onclick=()=>takeDiscard(n);
@@ -1338,6 +1709,17 @@ function renderStock(){
   
   // Stock habis: akhiri ronde otomatis dengan perhitungan deadwood+melt
   if(deck.length===0 && !roundOver){ /* tunggu pemain yang mengambil kartu terakhir membuang dulu */ }
+}
+
+// Fungsi baru: Tentukan maksimal kartu discard yang boleh diambil
+function getMaxTakeableCards() {
+  const numPlayers = players.length;
+  switch(numPlayers) {
+    case 2: return 1; // 2 pemain: hanya 1 kartu teratas
+    case 3: return 2; // 3 pemain: maksimal 2 kartu teratas  
+    case 4: return 3; // 4 pemain: maksimal 3 kartu teratas
+    default: return 1; // fallback
+  }
 }
 function renderHand(){
   const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
@@ -1532,8 +1914,8 @@ window.addEventListener('DOMContentLoaded',()=>{
       const order = ['♠','♥','♦','♣'];
       if (!me || !me.hand) return;
       me.hand.sort((a,b) => order.indexOf(a.suit) - order.indexOf(b.suit) || (r2n(a.rank) - r2n(b.rank)));
-      renderHand();
-    };
+    renderHand();
+  };
   }
   
   if (btnSortRank) {
@@ -1542,8 +1924,8 @@ window.addEventListener('DOMContentLoaded',()=>{
       const me = players[playerIndex]; 
       if (!me || !me.hand) return;
       me.hand.sort((a,b) => (r2n(a.rank) - r2n(b.rank)) || a.suit.localeCompare(b.suit));
-      renderHand();
-    };
+    renderHand();
+  };
   }
   
   const handEl = document.getElementById('hand');
