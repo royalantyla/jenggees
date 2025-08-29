@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Socket.IO Connection</title>
+</head>
+<body>
+    <h1>Socket.IO Connection Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="messages"></div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const statusEl = document.getElementById('status');
+        const messagesEl = document.getElementById('messages');
+        
+        function addMessage(msg) {
+            const div = document.createElement('div');
+            div.textContent = new Date().toLocaleTimeString() + ': ' + msg;
+            messagesEl.appendChild(div);
+        }
+        
+        try {
+            const socket = io();
+            
+            socket.on('connect', () => {
+                statusEl.textContent = 'Connected! Socket ID: ' + socket.id;
+                statusEl.style.color = 'green';
+                addMessage('Connected to server');
+            });
+            
+            socket.on('disconnect', () => {
+                statusEl.textContent = 'Disconnected';
+                statusEl.style.color = 'red';
+                addMessage('Disconnected from server');
+            });
+            
+            socket.on('error', (error) => {
+                statusEl.textContent = 'Error: ' + error;
+                statusEl.style.color = 'red';
+                addMessage('Error: ' + error);
+            });
+            
+        } catch (error) {
+            statusEl.textContent = 'Failed to initialize Socket.IO: ' + error.message;
+            statusEl.style.color = 'red';
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Remi Multiplayer — Online Game with Friends</title>
+<style>
+  :root{--ink:#0f172a;--muted:#64748b}
+  html,body{height:100%}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial;background:linear-gradient(#f2fff5,#ffffff)}
+  .wrap{max-width:1120px;margin:0 auto;padding:16px}
+  h1{margin:0 0 6px}
+  .sub{color:var(--muted);font-size:12px}
+  .panel{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px}
+  .row{display:grid;grid-template-columns:1.2fr 1.6fr 1.2fr;gap:12px}
+  .players{display:grid;grid-template-columns:1fr;gap:10px}
+  .player{border:1px solid #e5e7eb;border-radius:14px;padding:10px}
+  .player.active{box-shadow:0 0 0 3px #c7d2fe}
+  .cards{display:flex;flex-wrap:nowrap;gap:8px;align-items:center;overflow-x:auto}
+  /* Hand grid: max 5 per row, wrap to next row */
+  #hand.cards{
+    display:grid !important;
+    grid-template-columns: repeat(5, 76px);
+    grid-auto-rows: auto;
+    gap:8px;
+    align-items:start;
+    overflow-x:visible;
+  }
+
+  .card{position:relative;min-width:76px;max-width:76px;padding:12px 14px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,.04);text-align:center;font-weight:800;font-size:20px}
+  .card.red{color:#dc2626;border-color:#fecaca}
+  .card.sel{outline:3px solid #60a5fa}
+  .meld{border:1px solid #e5e7eb;border-radius:12px;padding:8px;background:#f9fafb;margin-top:6px}
+  .badge{position:absolute;left:50%;transform:translateX(-50%);bottom:-10px;background:#fde68a;color:#78350f;border:1px solid #f59e0b;border-radius:999px;padding:1px 6px;font-size:10px}
+  .wildTag{position:absolute;top:2px;right:4px;background:#a7f3d0;color:#065f46;border:1px solid #34d399;border-radius:6px;padding:1px 4px;font-size:10px;font-weight:800}
+  .btn{border:0;border-radius:10px;padding:8px 12px;background:#4f46e5;color:#fff;cursor:pointer}
+  .btn.min{padding:6px 8px;font-size:12px}
+  .btn.green{background:#10b981}
+  .btn.gray{background:#64748b}
+  .btn.red{background:#ef4444}
+  .btn.amber{background:#f59e0b}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .subpanel{border:1px solid #e5e7eb;border-radius:10px;padding:6px;background:#f8fafc;margin-top:6px}
+  .legend{display:flex;align-items:center;gap:8px}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal{background:#fff;border-radius:14px;padding:16px 18px;min-width:360px;max-width:92vw;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .srow{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #eef2f7}
+  .srow.head{font-weight:700;border-bottom:2px solid #e5e7eb}
+  textarea{width:100%;min-height:100px;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff}
+
+  /* Discard strip */
+  .gridstrip{display:grid;grid-auto-flow:column;column-gap:8px;align-items:start;overflow-x:hidden;width:100%}
+  .slot{width:76px;display:flex;justify-content:center}
+  .slot button{width:100%;}
+  .ph{visibility:hidden}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Remi Multiplayer — Online Game</h1>
+  <div class="sub">2–4 pemain online • Multiplayer real-time • Run angka, Run JQK, Set As</div>
+
+  <!-- Connection Status -->
+  <div id="connectionStatus" class="panel" style="margin-top:10px; display:none">
+    <div class="sub">Status Koneksi: <span id="statusText">Menghubungkan...</span></div>
+  </div>
+
+  <!-- Main Menu -->
+  <div id="mainMenu" class="panel" style="margin-top:10px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <div class="sub" style="margin-bottom:6px">Nama Pemain</div>
+        <input id="playerNameInput" type="text" placeholder="Masukkan nama Anda" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:10px">
+        <button id="createRoomBtn" class="btn green" style="width:100%;margin-bottom:6px">Buat Room Baru</button>
+        <div class="sub" style="margin-bottom:6px">Atau masuk ke room yang ada:</div>
+        <input id="roomIdInput" type="text" placeholder="Masukkan Room ID" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px">
+        <button id="joinRoomBtn" class="btn" style="width:100%">Gabung Room</button>
+        </div>
+      <div>
+        <div class="sub" style="margin-bottom:6px">Cara Bermain Online</div>
+        <div class="sub" style="padding:8px;background:#f8fafc;border-radius:8px;line-height:1.4">
+          1. Masukkan nama Anda<br>
+          2. Buat room baru atau gabung room teman<br>
+          3. Tunggu teman bergabung (2-4 pemain)<br>
+          4. Host tekan "Mulai Game" untuk memulai<br>
+          5. Mainkan seperti biasa secara bergantian
+      </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Room Lobby -->
+  <div id="roomLobby" class="panel" style="margin-top:10px; display:none">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div>
+        <div class="sub" style="margin-bottom:6px">Room ID: <strong id="currentRoomId"></strong></div>
+        <div class="sub" style="margin-bottom:6px">Pemain di Room:</div>
+        <div id="playersList" style="margin-bottom:10px"></div>
+        <div id="hostControls" style="display:none">
+          <button id="startGameBtn" class="btn green" style="width:100%;margin-bottom:6px">Mulai Game</button>
+      </div>
+        <div id="playerControls">
+          <button id="readyBtn" class="btn" style="width:100%;margin-bottom:6px">Siap</button>
+        </div>
+        <button id="leaveRoomBtn" class="btn red" style="width:100%">Keluar Room</button>
+      </div>
+      <div>
+        <div class="sub" style="margin-bottom:6px">Chat Room</div>
+        <div id="chatMessages" style="height:200px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff;margin-bottom:6px"></div>
+        <div style="display:flex;gap:6px">
+          <input id="chatInput" type="text" placeholder="Ketik pesan..." style="flex:1;padding:6px;border:1px solid #e5e7eb;border-radius:8px">
+          <button id="sendChatBtn" class="btn">Kirim</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="game" style="display:none">
+    <div class="row" style="margin-top:12px">
+      <div id="players" class="players"></div>
+
+      <div class="panel">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="panel">
+            <div class="sub">Deck (Stock)</div>
+            <div id="deckCount" style="font-size:36px;font-weight:800;text-align:center">52</div>
+            <div style="text-align:center;margin-top:6px"><button id="btnDrawDeck" class="btn green">Ambil 1</button></div>
+          </div>
+          <div class="panel">
+            <div class="sub">Discard (7 terakhir) — tombol ambil di 3 teratas</div>
+            <div id="discardStrip" class="gridstrip" style="margin-top:6px"></div>
+            <div id="discardCtl" class="gridstrip" style="margin-top:6px"></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+          <div class="sub"><b>Info</b></div>
+          <div class="legend sub">Kartu Wild: <span id="wildTxt"></span></div>
+          <div id="wildSample" class="cards" style="margin-top:6px"></div>
+          <div style="margin-top:6px">
+            <div class="sub"><b>History Buang & Aksi</b></div>
+            <textarea id="history" readonly></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="sub"><b id="handTitle">Tangan</b> — Pilih 1 utk buang, 3+ utk meld • Drag untuk menata</div>
+        <div id="hand" class="cards" style="margin-top:6px"></div>
+        <div style="margin-top:8px">
+          <button class="btn red" id="btnDiscard">Buang Kartu Terpilih</button>
+          <button class="btn gray" id="btnResetSel">Reset Pilihan</button>
+          <button class="btn" id="btnSortSuit">Sort Suit</button>
+          <button class="btn" id="btnSortRank">Sort Rank</button>
+        </div>
+        <div style="margin-top:8px">
+          <div class="sub" style="margin-bottom:6px">Aksi Meld</div>
+          <button class="btn" id="btnRunNum">Run Angka</button>
+          <button class="btn" id="btnRunJQK">Run J-Q-K</button>
+          <button class="btn gray" id="btnSetA">Set As</button>
+        </div>
+        <div class="sub" id="hint" style="margin-top:8px">&nbsp;</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="overlay" class="overlay">
+  <div class="modal">
+    <div style="font-size:18px;font-weight:800;margin-bottom:6px">Ronde Selesai</div>
+    <div id="roundInfo" class="sub" style="margin-bottom:10px"></div>
+    <div id="scoreRows">
+      <div class="srow head"><div>Pemain</div><div>Skor Ronde</div><div>Total</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
+      <button id="btnResetSeries" class="btn gray">Reset Skor</button>
+      <button id="btnNextRound" class="btn green">Lanjut Ronde</button>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+(function(){
+const SUITS=['♠','♥','♦','♣'];
+const RANKS=['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+const isRed = s => (s==='♥'||s==='♦');
+const isNum = r => (r!=='J'&&r!=='Q'&&r!=='K'&&r!=='A');
+const r2n = r => isNum(r) ? parseInt(r,10) : ({J:11,Q:12,K:13,A:14}[r]);
+let NEXT=1; const uid=()=>NEXT++;
+const mkDeck=()=>{const a=[];for(const s of SUITS)for(const r of RANKS)a.push({id:uid(),rank:r,suit:s});return a;}
+const shuffle=a=>{const b=a.slice();for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}return b;}
+
+// Multiplayer variables
+let socket = null;
+let currentRoomId = null;
+let currentPlayerId = null;
+let isHost = false;
+let isReady = false;
+let roomPlayers = [];
+let isMultiplayer = false;
+let myPlayerIndex = 0;
+
+let WILD_RANK='7';
+const isWildCard = c => c.rank===WILD_RANK;
+function baseValue(c){ if(isWildCard(c)) return 25; if(isNum(c.rank)) return 5; if(c.rank==='A') return 15; return 10; }
+
+let players=[], deck=[], discard=[], cur=0;
+let hasDrawn=false, mustUseDiscard=false;
+let drawnIds={}, drawnOwnerMap={}, usedDiscardInRun=false;
+let usedDrawnForClose=[]; // {owner, rank}
+let lastUsedDrawnId=null, lastUsedDrawnRank=null;
+let closingDiscardRank=null;
+let lastDrawFromDiscard=false, roundOver=false;
+let deckEndPending=false;
+let HUMAN_IDX=0, totalScores=[], roundNo=1, numPlayers=2;
+let selected={};
+let actionBusy=false;
+
+// Turn timer (20s)
+let turnTimerId=null, turnDeadline=0;
+function clearTurnTimer(){ if(turnTimerId){ clearInterval(turnTimerId); turnTimerId=null; } }
+function startTurnTimer(){
+  clearTurnTimer();
+  turnDeadline = Date.now() + 20000; // 20s
+  const h=document.getElementById('hint');
+  function tick(){
+    const ms = Math.max(0, turnDeadline - Date.now());
+    const sec = Math.ceil(ms/1000);
+    if(h && cur===HUMAN_IDX && !roundOver) h.textContent = 'Waktu tersisa: '+sec+' dtk';
+    if(ms<=0){ clearTurnTimer(); onTurnTimeout(); }
+  }
+  turnTimerId = setInterval(tick, 250);
+  tick();
+}
+async function onTurnTimeout(){
+  if(roundOver) return;
+  // Jika belum ambil, ambil dari Deck bila ada (agar bisa buang)
+  if(cur===HUMAN_IDX && !hasDrawn){
+    if(deck.length){ drawDeck(); }
+    else{ /* jika deck habis, biarkan */ }
+  }
+  // Otomatis buang kartu yang tidak punya potensi melt (kecuali wild)
+  const me = curPl();
+  if(cur===HUMAN_IDX && me){
+    const toDiscard = pickNonMeldCard(me.hand) || chooseDiscard(me.hand, me.hasMelded);
+    if(toDiscard){
+      selected = {}; selected[toDiscard.id]=1;
+      discardSel();
+    }
+  }
+}
+
+
+const MSG = {
+  aceFromDiscardRequiresPriorMeld: 'Set As dari buangan hanya boleh jika kamu sudah pernah MELD sebelumnya. TOLOL',
+  discardMustFormMeld: 'Ambil dari buangan harus bisa melt (Run angka / Run JQK / Set As*), dengan ≥2 kartu dari tangan. *Set As hanya jika sudah pernah meld. TOLOL'
+};
+
+// Multiplayer functions
+function initSocket() {
+  if (typeof io === 'undefined') {
+    console.error('Socket.IO not loaded. Make sure server is running.');
+    document.getElementById('statusText').textContent = 'Error: Server tidak tersedia';
+    return;
+  }
+  
+  try {
+    socket = io();
+  } catch (error) {
+    console.error('Failed to connect to server:', error);
+    document.getElementById('statusText').textContent = 'Error: Gagal terhubung ke server';
+    return;
+  }
+  
+  socket.on('connect', () => {
+    console.log('Connected to server');
+    currentPlayerId = socket.id;
+    const statusEl = document.getElementById('statusText');
+    const connectionEl = document.getElementById('connectionStatus');
+    if (statusEl) statusEl.textContent = 'Terhubung';
+    if (connectionEl) connectionEl.style.display = 'block';
+  });
+
+  socket.on('disconnect', () => {
+    console.log('Disconnected from server');
+    const statusEl = document.getElementById('statusText');
+    if (statusEl) statusEl.textContent = 'Terputus';
+    showMainMenu();
+  });
+
+  socket.on('roomCreated', (data) => {
+    currentRoomId = data.roomId;
+    isHost = true;
+    updateRoomInfo(data.roomInfo);
+    showRoomLobby();
+    addChatMessage('System', `Room ${data.roomId} berhasil dibuat!`);
+  });
+
+  socket.on('roomJoined', (data) => {
+    currentRoomId = data.roomId;
+    isHost = false;
+    updateRoomInfo(data.roomInfo);
+    showRoomLobby();
+    addChatMessage('System', `Berhasil bergabung ke room ${data.roomId}`);
+  });
+
+  socket.on('playerJoined', (data) => {
+    updateRoomInfo(data.roomInfo);
+    const newPlayer = data.roomInfo.players[data.roomInfo.players.length - 1];
+    addChatMessage('System', `${newPlayer.name} bergabung ke room`);
+  });
+
+  socket.on('playerLeft', (data) => {
+    updateRoomInfo(data.roomInfo);
+    addChatMessage('System', 'Seorang pemain keluar dari room');
+  });
+
+  socket.on('roomUpdate', (data) => {
+    updateRoomInfo(data.roomInfo);
+  });
+
+  socket.on('hostChanged', (data) => {
+    isHost = data.isHost;
+    updateHostControls();
+  });
+
+  socket.on('gameStarted', (data) => {
+    isMultiplayer = true;
+    roomPlayers = data.roomInfo.players;
+    myPlayerIndex = roomPlayers.findIndex(p => p.id === currentPlayerId);
+    HUMAN_IDX = myPlayerIndex;
+    
+    // Initialize game with multiplayer data
+    startMultiplayerGame(data.gameState);
+    showGameScreen();
+    addChatMessage('System', 'Game dimulai!');
+  });
+
+  socket.on('gameStateSync', (data) => {
+    if (isMultiplayer) {
+      syncGameState(data.gameState);
+    }
+  });
+
+  socket.on('gameActionReceived', (data) => {
+    if (isMultiplayer && data.playerId !== currentPlayerId) {
+      handleRemoteAction(data.action, data.playerId, data.data);
+    }
+  });
+
+  socket.on('chatMessage', (data) => {
+    addChatMessage(data.playerName, data.message);
+  });
+
+  socket.on('error', (data) => {
+    alert(data.message);
+  });
+}
+
+function showMainMenu() {
+  document.getElementById('mainMenu').style.display = 'block';
+  document.getElementById('roomLobby').style.display = 'none';
+  document.getElementById('game').style.display = 'none';
+}
+
+function showRoomLobby() {
+  document.getElementById('mainMenu').style.display = 'none';
+  document.getElementById('roomLobby').style.display = 'block';
+  document.getElementById('game').style.display = 'none';
+}
+
+function showGameScreen() {
+  document.getElementById('mainMenu').style.display = 'none';
+  document.getElementById('roomLobby').style.display = 'none';
+  document.getElementById('game').style.display = 'block';
+}
+
+function updateRoomInfo(roomInfo) {
+  if (!roomInfo || !roomInfo.players) return;
+  
+  roomPlayers = roomInfo.players;
+  const roomIdEl = document.getElementById('currentRoomId');
+  if (roomIdEl) roomIdEl.textContent = roomInfo.roomId;
+  
+  const playersList = document.getElementById('playersList');
+  if (!playersList) return;
+  
+  playersList.innerHTML = '';
+  
+  roomInfo.players.forEach(player => {
+    const playerDiv = document.createElement('div');
+    playerDiv.style.padding = '4px 8px';
+    playerDiv.style.backgroundColor = player.ready ? '#f0f9ff' : '#f8fafc';
+    playerDiv.style.borderRadius = '6px';
+    playerDiv.style.marginBottom = '4px';
+    
+    let statusText = '';
+    if (player.isHost) statusText += ' (Host)';
+    if (player.ready) statusText += ' ✓';
+    
+    playerDiv.innerHTML = `${player.name}${statusText}`;
+    playersList.appendChild(playerDiv);
+  });
+  
+  updateHostControls();
+}
+
+function updateHostControls() {
+  const hostControls = document.getElementById('hostControls');
+  const playerControls = document.getElementById('playerControls');
+  const readyBtn = document.getElementById('readyBtn');
+  
+  if (!hostControls || !playerControls) return;
+  
+  if (isHost) {
+    hostControls.style.display = 'block';
+    playerControls.style.display = 'none';
+  } else {
+    hostControls.style.display = 'none';
+    playerControls.style.display = 'block';
+    if (readyBtn) {
+      readyBtn.textContent = isReady ? 'Batal Siap' : 'Siap';
+      readyBtn.className = isReady ? 'btn red' : 'btn green';
+    }
+  }
+}
+
+function addChatMessage(playerName, message) {
+  const chatMessages = document.getElementById('chatMessages');
+  if (!chatMessages) return;
+  
+  const messageDiv = document.createElement('div');
+  messageDiv.style.marginBottom = '4px';
+  messageDiv.style.fontSize = '14px';
+  
+  const time = new Date().toLocaleTimeString('id-ID', {hour: '2-digit', minute: '2-digit'});
+  messageDiv.innerHTML = `<span style="color:#64748b">[${time}]</span> <strong>${playerName}:</strong> ${message}`;
+  
+  chatMessages.appendChild(messageDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function startMultiplayerGame(gameState) {
+  // Reset game state
+  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+  lastDrawFromDiscard=false; roundOver=false; selected={}; hasDrawn=false; mustUseDiscard=false; drawnIds={}; usedDiscardInRun=false; usedDrawnForClose=[];
+  
+  // Set wild rank from server
+  WILD_RANK = gameState.wildRank || RANKS[Math.floor(Math.random()*RANKS.length)];
+  
+  // Initialize players from room data
+  players = [];
+  roomPlayers.forEach((roomPlayer, index) => {
+    players.push({
+      name: roomPlayer.name,
+      isBot: false, // All players are human in multiplayer
+      hand: gameState.playerHands ? gameState.playerHands[index] || [] : [],
+      melds: [],
+      hasMelded: false,
+      hasNonAceMeld: false
+    });
+  });
+  
+  // Initialize deck and discard from server
+  deck = gameState.deck || [];
+  discard = gameState.discard || [];
+  cur = gameState.currentPlayer || 0;
+  
+  // Clear history
+  const history = document.getElementById('history');
+  if (history) history.value = '';
+  
+  renderAll();
+  if (cur === myPlayerIndex) {
+    startTurnTimer();
+  } else {
+    clearTurnTimer();
+  }
+}
+
+function syncGameState(gameState) {
+  // Update game state from server
+  if (gameState.deck !== undefined) deck = gameState.deck;
+  if (gameState.discard !== undefined) discard = gameState.discard;
+  if (gameState.currentPlayer !== undefined) cur = gameState.currentPlayer;
+  if (gameState.wildRank !== undefined) WILD_RANK = gameState.wildRank;
+  
+  // Update players
+  if (gameState.players) {
+    gameState.players.forEach((serverPlayer, index) => {
+      if (players[index]) {
+        Object.assign(players[index], serverPlayer);
+      }
+    });
+  }
+  
+  // Update specific player hands if provided
+  if (gameState.playerHands) {
+    gameState.playerHands.forEach((hand, index) => {
+      if (players[index] && hand) {
+        players[index].hand = hand;
+      }
+    });
+  }
+  
+  renderAll();
+  
+  // Update turn timer
+  if (cur === myPlayerIndex && !roundOver) {
+    startTurnTimer();
+  } else {
+    clearTurnTimer();
+  }
+}
+
+function handleRemoteAction(action, playerId, data) {
+  const playerIndex = roomPlayers.findIndex(p => p.id === playerId);
+  if (playerIndex === -1) return;
+  
+  switch (action) {
+    case 'drawDeck':
+      logh(players[playerIndex].name + ' ambil dari Deck');
+      break;
+    case 'takeDiscard':
+      logh(players[playerIndex].name + ' ambil dari Discard ' + data.count);
+      break;
+    case 'meld':
+      logh(players[playerIndex].name + ' MELD: ' + data.type);
+      break;
+    case 'discard':
+      logh(players[playerIndex].name + ' buang ' + data.card.rank + data.card.suit);
+      break;
+  }
+  
+  renderAll();
+}
+
+function broadcastGameState() {
+  if (!isMultiplayer || !socket || !currentRoomId) return;
+  
+  const gameState = {
+    deck: deck,
+    discard: discard,
+    currentPlayer: cur,
+    wildRank: WILD_RANK,
+    players: players.map((p, index) => ({
+      name: p.name,
+      melds: p.melds,
+      hasMelded: p.hasMelded,
+      hasNonAceMeld: p.hasNonAceMeld,
+      handCount: p.hand.length
+    })),
+    // Only send your own hand, others get hand count only
+    playerHands: players.map((p, index) => 
+      index === myPlayerIndex ? p.hand : null
+    )
+  };
+  
+  socket.emit('gameStateUpdate', {
+    roomId: currentRoomId,
+    gameState: gameState
+  });
+}
+
+function broadcastAction(action, actionData) {
+  if (!isMultiplayer || !socket || !currentRoomId) return;
+  
+  socket.emit('gameAction', {
+    roomId: currentRoomId,
+    action: action,
+    actionData: actionData
+  });
+}
+
+
+function logh(msg){ const ta=document.getElementById('history'); if(!ta) return; ta.value += (ta.value?'\n':'') + msg; ta.scrollTop=ta.scrollHeight; }
+
+// Removed old setup functions - now using multiplayer lobby
+
+/* Validasi Kombinasi */
+function isJQKRun(cards){
+  if(cards.length!==3) return null;
+  const s=cards[0].suit;
+  for(let i=1;i<cards.length;i++) if(cards[i].suit!==s) return null;
+  const rr=[...cards].map(c=>c.rank).sort((a,b)=>r2n(a)-r2n(b));
+  return rr.join(',')==='J,Q,K'?{type:'jqk-run',cards:[...cards],suit:s}:null;
+}
+function isAceSet(cards){ if(cards.length<3||cards.length>4) return null; for(const c of cards) if(c.rank!=='A') return null; return {type:'ace-set',cards:[...cards]}; }
+function numberRun(sel){
+  if(sel.length<3) return null;
+  const nums=sel.filter(c=>isNum(c.rank) && !isWildCard(c));
+  const wild=sel.filter(c=>isWildCard(c));
+  if(nums.length===0 && wild.length<3) return null;
+  const suit=nums.length?nums[0].suit:null; const n=sel.length;
+  for(let start=2; start<=10-(n-1); start++){
+    const target=Array.from({length:n},(_,i)=>start+i);
+    let remN=nums.slice(), remW=wild.slice(), assigned=[], ok=true;
+    for(const need of target){
+      let found=remN.findIndex(cc=>(!suit||cc.suit===suit)&& r2n(cc.rank)===need);
+      if(found>=0){ assigned.push(remN.splice(found,1)[0]); }
+      else{
+        if(!remW.length){ ok=false; break; }
+        const w=remW.shift();
+        assigned.push({id:w.id,rank:w.rank,suit:w.suit,isWildSub:true,substitutedTo:need});
+      }
+    }
+    if(ok){
+      const suitOut = suit || (function(){ for(const c of assigned) if(isNum(c.rank)&&!isWildCard(c)) return c.suit; return null; })();
+      return {type:'number-run',cards:assigned,suit:suitOut};
+    }
+  }
+  return null;
+}
+function combos(arr,min,max){
+  const res=[], n=arr.length;
+  function bt(st,path,k){
+    if(path.length===k){ res.push(path.map(i=>arr[i])); return; }
+    for(let t=st;t<n;t++) bt(t+1,path.concat([t]),k);
+  }
+  for(let k=min;k<=Math.min(max,n);k++) bt(0,[],k);
+  return res;
+}
+function existsNumberRunUsing(requiredIds, pool, handSet, allowAceSet){
+  // requiredIds: ids of cards taken from discard (must use >=1)
+  // pool: hand + taken
+  // handSet: Set of ids that are from HAND (not from discard)
+  // allowAceSet: boolean (true only if player.hasMelded)
+  const req = {}; requiredIds.forEach(id => req[id]=1);
+
+  function usesRequired(combo){ return combo.some(c => req[c.id]); }
+  function handCount(combo){ return combo.reduce((s,c)=> s + (handSet.has(c.id)?1:0), 0); }
+
+  const n = pool.length;
+  const maxL = Math.min(6, n);
+
+  // Check Number Run (3..6)
+  for(let L=3; L<=maxL; L++){
+    const idx=[...Array(n).keys()];
+    function bt(st, pick){
+      if(pick.length===L){
+        const combo = pick.map(i=>pool[i]);
+        if(usesRequired(combo) && handCount(combo)>=2 && numberRun(combo)) return true;
+        return false;
+      }
+      for(let t=st;t<n;t++){ if(bt(t+1,pick.concat([t]))) return true; }
+      return false;
+    }
+    if(bt(0,[])) return true;
+  }
+
+  // Check J-Q-K run (exactly 3)
+  if(n>=3){
+    const idx=[...Array(n).keys()];
+    function bt2(st,pick){
+      if(pick.length===3){
+        const combo = pick.map(i=>pool[i]);
+        if(usesRequired(combo) && handCount(combo)>=2 && isJQKRun(combo)) return true;
+        return false;
+      }
+      for(let t=st;t<n;t++){ if(bt2(t+1,pick.concat([t]))) return true; }
+      return false;
+    }
+    if(bt2(0,[])) return true;
+  }
+
+  // Check Ace set (3..4) but only if allowed
+  if(allowAceSet){
+    const idx=[...Array(n).keys()];
+    function bt3(st,pick){
+      if(pick.length>=3 && pick.length<=4){
+        const combo = pick.map(i=>pool[i]);
+        if(usesRequired(combo) && handCount(combo)>=2 && isAceSet(combo)) return true;
+      }
+      if(pick.length===4) return false;
+      for(let t=st;t<n;t++){ if(bt3(t+1,pick.concat([t]))) return true; }
+      return false;
+    }
+    if(bt3(0,[])) return true;
+  }
+
+  return false;
+}
+function anyMeld(hand){
+function canCardBeInAnyMeld(card, hand){
+  // Try number run 3..6 including this card
+  const others = hand.filter(c=>c.id!==card.id);
+  const pool = [card].concat(others);
+  const n = pool.length;
+  for(let L=3; L<=Math.min(6,n); L++){
+    // combinations that include card (index 0)
+    function bt(st, pick){
+      if(pick.length===L){
+        if(!pick.includes(0)) return false;
+        const combo = pick.map(i=>pool[i]);
+        return !!numberRun(combo);
+      }
+      for(let t=st;t<n;t++){ if(bt(t+1,pick.concat([t]))) return true; }
+      return false;
+    }
+    if(bt(0,[])) return true;
+  }
+  // JQK run including card
+  if(['J','Q','K'].includes(card.rank)){
+    const idx=[...Array(n).keys()];
+    function bt2(st,p){
+      if(p.length===3){
+        if(!p.includes(0)) return false;
+        const combo=p.map(i=>pool[i]);
+        return !!isJQKRun(combo);
+      }
+      for(let t=st;t<n;t++){ if(bt2(t+1,p.concat([t]))) return true; }
+      return false;
+    }
+    if(bt2(0,[])) return true;
+  }
+  // Ace set including this card
+  if(card.rank==='A'){
+    const aces = hand.filter(c=>c.rank==='A');
+    if(aces.length>=2) return true; // with this card => >=3
+  }
+  return false;
+}
+function pickNonMeldCard(hand){
+  const candidates = hand.filter(c=>!isWildCard(c) && !canCardBeInAnyMeld(c, hand));
+  if(candidates.length){
+    candidates.sort((a,b)=>baseValue(a)-baseValue(b));
+    return candidates[0];
+  }
+  // fallback: pick lowest non-wild
+  const nonWild = hand.filter(c=>!isWildCard(c));
+  if(nonWild.length){
+    nonWild.sort((a,b)=>baseValue(a)-baseValue(b));
+    return nonWild[0];
+  }
+  // if all wild, return lowest base value anyway
+  const copy = hand.slice().sort((a,b)=>baseValue(a)-baseValue(b));
+  return copy[0] || null;
+}
+}
+function anyMeld(hand){
+function canCardBeInAnyMeld(card, hand){
+  // Try number run 3..6 including this card
+  const others = hand.filter(c=>c.id!==card.id);
+  const pool = [card].concat(others);
+  const n = pool.length;
+  for(let L=3; L<=Math.min(6,n); L++){
+    // combinations that include card (index 0)
+    function bt(st, pick){
+      if(pick.length===L){
+        if(!pick.includes(0)) return false;
+        const combo = pick.map(i=>pool[i]);
+        return !!numberRun(combo);
+      }
+      for(let t=st;t<n;t++){ if(bt(t+1,pick.concat([t]))) return true; }
+      return false;
+    }
+    if(bt(0,[])) return true;
+  }
+  // JQK run including card
+  if(['J','Q','K'].includes(card.rank)){
+    const idx=[...Array(n).keys()];
+    function bt2(st,p){
+      if(p.length===3){
+        if(!p.includes(0)) return false;
+        const combo=p.map(i=>pool[i]);
+        return !!isJQKRun(combo);
+      }
+      for(let t=st;t<n;t++){ if(bt2(t+1,p.concat([t]))) return true; }
+      return false;
+    }
+    if(bt2(0,[])) return true;
+  }
+  // Ace set including this card
+  if(card.rank==='A'){
+    const aces = hand.filter(c=>c.rank==='A');
+    if(aces.length>=2) return true; // with this card => >=3
+  }
+  return false;
+}
+function pickNonMeldCard(hand){
+  const candidates = hand.filter(c=>!isWildCard(c) && !canCardBeInAnyMeld(c, hand));
+  if(candidates.length){
+    candidates.sort((a,b)=>baseValue(a)-baseValue(b));
+    return candidates[0];
+  }
+  // fallback: pick lowest non-wild
+  const nonWild = hand.filter(c=>!isWildCard(c));
+  if(nonWild.length){
+    nonWild.sort((a,b)=>baseValue(a)-baseValue(b));
+    return nonWild[0];
+  }
+  // if all wild, return lowest base value anyway
+  const copy = hand.slice().sort((a,b)=>baseValue(a)-baseValue(b));
+  return copy[0] || null;
+}
+
+  let c3=combos(hand,3,3); for(const g of c3){ const x=isJQKRun(g); if(x) return {kind:'jqk',cards:g}; }
+  const aces=hand.filter(c=>c.rank==='A');
+  if(aces.length>=3){ const as=combos(aces,3,4); for(const g of as){ const x=isAceSet(g); if(x) return {kind:'aces',cards:g}; } }
+  for(let L=6;L>=3;L--){ const cL=combos(hand,L,L); for(const g of cL){ const x=numberRun(g); if(x) return {kind:'number',cards:g}; } }
+  return null;
+}
+
+/* Helpers */
+const curPl = ()=>players[cur];
+const setHint= t => { const h=document.getElementById('hint'); if(h) h.textContent=t||''; };
+
+/* Actions */
+function drawDeck(){ 
+  if(roundOver||hasDrawn||!deck.length) return;
+  if(isMultiplayer && cur!==myPlayerIndex) return;
+  if(!isMultiplayer && cur!==HUMAN_IDX) return;
+  
+  const c=deck.shift(); curPl().hand.push(c);
+  hasDrawn=true; lastDrawFromDiscard=false;
+  if(deck.length===0) deckEndPending=true;
+  logh(players[cur].name+' ambil dari Deck'); 
+  
+  if(isMultiplayer) {
+    broadcastAction('drawDeck', {});
+    broadcastGameState();
+  }
+  
+  renderAll();
+}
+function takeDiscard(n){
+  if(roundOver||hasDrawn||discard.length<n) return;
+  if(isMultiplayer && cur!==myPlayerIndex) return;
+  if(!isMultiplayer && cur!==HUMAN_IDX) return;
+  
+  const slice=discard.slice(discard.length-n);
+  const take=slice.map(e=>e.card);
+  const reqIds=take.map(c=>c.id);
+  const me = curPl();
+  const handSet = new Set(me.hand.map(c=>c.id));
+  const pool = me.hand.concat(take);
+  const allowAce = !!me.hasMelded; // Ace set boleh hanya jika sudah pernah meld
+  if(!existsNumberRunUsing(reqIds, pool, handSet, allowAce)){
+    // Kalau gagal tapi akan berhasil jika Ace-set diizinkan, tampilkan pesan khusus
+    if(!allowAce && existsNumberRunUsing(reqIds, pool, handSet, true)){
+      setHint(MSG.aceFromDiscardRequiresPriorMeld);
+    }else{
+      setHint(MSG.discardMustFormMeld);
+    }
+    return;
+  }
+  discard=discard.slice(0,discard.length-n);
+  curPl().hand=curPl().hand.concat(take);
+  hasDrawn=true; mustUseDiscard=true; lastDrawFromDiscard=true; usedDiscardInRun=false;
+  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+  usedDrawnForClose=[];
+  drawnIds={}; drawnOwnerMap={};
+  slice.forEach((s,i)=>{ drawnIds[s.card.id]=1; drawnOwnerMap[s.card.id]=s.ownerIndex; });
+  logh(players[cur].name+' ambil dari Discard '+n);
+  
+  if(isMultiplayer) {
+    broadcastAction('takeDiscard', {count: n});
+    broadcastGameState();
+  }
+  
+  renderAll(); setHint('Wajib pakai minimal 1 kartu discard pada RUN sebelum buang.');
+}
+function tryMeld(kind,cards){
+  if(roundOver) return false;
+  if(isMultiplayer && cur!==myPlayerIndex) return false;
+  if(!isMultiplayer && cur!==HUMAN_IDX) return false;
+  const me=curPl();
+  const sel=cards||(()=>{const a=[];for(const c of me.hand) if(selected[c.id]) a.push(c);return a;})();
+  if(sel.length<3 && kind!=='aces') { setHint('Pilih kartu untuk meld.'); return false; }
+  let meld = (kind==='jqk')?isJQKRun(sel) : (kind==='aces')?isAceSet(sel) : numberRun(sel);
+  if(!meld){ setHint('Kombinasi tidak valid.'); return false; }
+  const calonSisa = me.hand.length - sel.length;
+  if(calonSisa===0 && !lastDrawFromDiscard){ setHint('Tidak boleh habis kartu jika ambil dari Deck.'); return false; }
+  if(!lastDrawFromDiscard && calonSisa<2){ setHint('Jika ambil dari Deck, tidak boleh meld yang menyisakan < 2 kartu. Buang dulu 1 kartu sehingga tetap memegang ≥ 3 di awal giliran berikutnya.'); return false; }
+  // Jika mau habis kartu dan ambilnya dari Discard: WAJIB pakai kartu discard DI RUN angka
+  if(calonSisa===0 && lastDrawFromDiscard){
+    const usesDiscardInRun = (kind==='number') && sel.some(c=>drawnIds[c.id]);
+    if(!usesDiscardInRun){ setHint('Tidak bisa menutup: kartu discard harus dipakai dalam RUN angka.'); return false; }
+  }
+  if(kind==='number'){ for(const c of sel){ if(drawnIds[c.id]){ usedDiscardInRun=true; lastUsedDrawnId=c.id; lastUsedDrawnRank=c.rank; const own=drawnOwnerMap[c.id]; if(own!=null) usedDrawnForClose.push({owner:own, rank:c.rank}); } } }
+  if(kind!=='number'){ for(const c of sel){ if(drawnIds[c.id]){ const own=drawnOwnerMap[c.id]; if(own!=null) usedDrawnForClose.push({owner:own, rank:c.rank}); } } }
+  const ids={}; sel.forEach(c=>ids[c.id]=1);
+  me.hand=me.hand.filter(c=>!ids[c.id]); me.melds.push(meld); me.hasMelded=true; if(meld.type!=='ace-set') me.hasNonAceMeld=true;
+  selected={}; 
+  
+  const meldType = meld.type==='number-run'?'number-run':meld.type==='jqk-run'?'run JQK':'set As';
+  logh(players[cur].name+' MELD: '+meldType);
+  
+  if(isMultiplayer) {
+    broadcastAction('meld', {type: meldType});
+    broadcastGameState();
+  }
+  
+  renderAll();
+  if(me.hand.length===0 && lastDrawFromDiscard && usedDiscardInRun){ endRound({closer:cur}); }
+  return true;
+}
+function discardSel(){ if(actionBusy) return; actionBusy=true;
+  if(roundOver){ actionBusy=false; return; }
+  if(isMultiplayer && cur!==myPlayerIndex){ actionBusy=false; return; }
+  if(!isMultiplayer && cur!==HUMAN_IDX){ actionBusy=false; return; }
+  if(!hasDrawn){ setHint('Ambil kartu dulu.'); actionBusy=false; return; }
+  const me=curPl();
+  const selIds=[]; for(const id in selected) if(selected[id]) selIds.push(+id);
+  const sel=[]; for(const c of me.hand) if(selIds.includes(c.id)) sel.push(c);
+  if(sel.length!==1){ setHint('Pilih tepat 1 kartu untuk dibuang.'); actionBusy=false; return; }
+  const card=sel[0];
+  if(mustUseDiscard && !usedDiscardInRun){ setHint('Wajib pakai kartu discard dalam RUN terlebih dahulu.'); actionBusy=false; return; }
+  if(!lastDrawFromDiscard && me.hand.length===1){ setHint('Ambil dari Deck: tidak boleh habis (tidak boleh membuang kartu terakhir).'); actionBusy=false; return; }
+  if(card.rank==='A' && !me.hasMelded){ setHint('Tidak boleh buang As sebelum pernah meld.'); actionBusy=false; return; }
+  if(isWildCard(card)){ logh(players[cur].name+' membuang WILD!'); endRoundPenalty(cur); actionBusy=false; return; }
+  me.hand = me.hand.filter(c=>c.id!==card.id);
+  discard.push({card,ownerIndex:cur}); selected={};
+  closingDiscardRank = card.rank;
+  logh(players[cur].name+' buang '+card.rank+card.suit);
+  
+  if(isMultiplayer) {
+    broadcastAction('discard', {card: card});
+    broadcastGameState();
+  }
+  
+  renderAll();
+  clearTurnTimer();
+  if(deckEndPending){ deckEndPending=false; endRound({closer:cur, closeDiscardRank:closingDiscardRank}); actionBusy=false; return; }
+  if(me.hand.length===0){ endRound({closer:cur, closeDiscardRank:closingDiscardRank}); actionBusy=false; } else { nextTurn(); actionBusy=false; }
+}
+function nextTurn(){ 
+  cur=(cur+1)%players.length; 
+  hasDrawn=false; mustUseDiscard=false; drawnIds={}; usedDiscardInRun=false; selected={}; lastDrawFromDiscard=false; 
+  
+  if(isMultiplayer) {
+    broadcastGameState();
+  }
+  
+  renderAll(); 
+  
+  if(isMultiplayer) {
+    if(cur === myPlayerIndex) startTurnTimer(); 
+    else clearTurnTimer();
+  } else {
+    if(cur===HUMAN_IDX) startTurnTimer(); 
+    else clearTurnTimer(); 
+    maybeBot();
+  }
+}
+
+function meldPoints(p){ let sum=0; for(const m of p.melds){ if(m.type==='number-run'){ sum += m.cards.length*5; } else if(m.type==='jqk-run'){ sum += m.cards.length*10; } else if(m.type==='ace-set'){ sum += m.cards.length*15; } } return sum; }
+function deadPenalty(p){ return p.hand.reduce((s,c)=>s+baseValue(c),0); }
+
+function applyCloseBonusIfAny(pts, info){
+  // Jika penutup mengambil dari discard dan memakai kartu discard di run,
+  // penalti diberikan ke setiap pemilik kartu DISCARD yang terpakai dalam meld,
+  // dengan nilai berdasarkan kartu TERAKHIR yang DIBUANG saat menutup.
+  if(lastDrawFromDiscard && usedDiscardInRun && usedDrawnForClose.length){
+    const closer = info.closer;
+    const rank = info.closeDiscardRank || lastUsedDrawnRank;
+    let pen = 0;
+    if(rank===WILD_RANK) pen = -250;
+    else if(rank==='A') pen = -150;
+    else if(rank==='J'||rank==='Q'||rank==='K') pen = -100;
+    else pen = -50;
+    // Set korban unik (pemilik kartu buangan yang dipakai dalam meld)
+    const victims = {};
+    usedDrawnForClose.forEach(ent => { if(ent.owner!=null && ent.owner!==closer) victims[ent.owner]=1; });
+    for(const v in victims){
+      pts[parseInt(v,10)] += pen;
+      pts[closer] -= pen;
+      logh(players[closer].name+' menutup; '+players[v].name+' kena '+pen+' (berdasar kartu buang '+rank+')');
+    }
+  }
+}
+function endRound(info){ clearTurnTimer();
+  roundOver=true; renderAll();
+  for(const p of players){
+    let plan; let guard=0;
+    while((plan=anyMeld(p.hand)) && guard++<10){
+      const ids={}; plan.cards.forEach(c=>ids[c.id]=1);
+      p.hand = p.hand.filter(c=>!ids[c.id]);
+      const meld = (plan.kind==='jqk')?isJQKRun(plan.cards) :(plan.kind==='aces')?isAceSet(plan.cards) :numberRun(plan.cards);
+      if(meld){ p.melds.push(meld); p.hasMelded=true; if(meld.type!=='ace-set') p.hasNonAceMeld=true; }
+    }
+  }
+  const pts=[]; for(const p of players) pts.push(meldPoints(p) - deadPenalty(p));
+  applyCloseBonusIfAny(pts, info);
+  if(totalScores.length!==players.length) totalScores=Array(players.length).fill(0);
+  for(let i=0;i<players.length;i++) totalScores[i]+=pts[i];
+  const box=document.getElementById('scoreRows');
+  box.innerHTML='<div class="srow head"><div>Pemain</div><div>Skor Ronde</div><div>Total</div></div>';
+  players.forEach((p,i)=>{
+    const row=document.createElement('div'); row.className='srow';
+    row.innerHTML='<div>'+p.name+(i===info.closer?' <span class="sub" style="color:#16a34a">(menutup)</span>':'')+'</div><div>'+pts[i]+'</div><div>'+totalScores[i]+'</div>';
+    box.appendChild(row);
+  });
+  document.getElementById('roundInfo').textContent='Ronde '+roundNo+' • Wild: '+WILD_RANK+' • Pemenang: '+players[info.closer].name;
+  document.getElementById('overlay').style.display='flex';
+  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+}
+function endRoundPenalty(offender){
+  roundOver=true; renderAll();
+  const pts=Array(players.length).fill(0); pts[offender]+=-250;
+  if(totalScores.length!==players.length) totalScores=Array(players.length).fill(0);
+  for(let i=0;i<players.length;i++) totalScores[i]+=pts[i];
+  const box=document.getElementById('scoreRows');
+  box.innerHTML='<div class="srow head"><div>Pemain</div><div>Skor Ronde</div><div>Total</div></div>';
+  players.forEach((p,i)=>{
+    const row=document.createElement('div'); row.className='srow';
+    row.innerHTML='<div>'+p.name+(i===offender?' <span class="sub" style="color:#ef4444">(buang WILD)</span>':'')+'</div><div>'+pts[i]+'</div><div>'+totalScores[i]+'</div>';
+    box.appendChild(row);
+  });
+  document.getElementById('roundInfo').textContent='Ronde '+roundNo+' • Wild: '+WILD_RANK+' • Pelanggaran: '+players[offender].name+' membuang WILD';
+  document.getElementById('overlay').style.display='flex';
+  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+}
+
+/* BOT */
+function chooseDiscard(hand,hasM){ let pool = hand.filter(c=>!isWildCard(c)); if(pool.length===0) pool=hand.slice(); pool.sort((a,b)=>baseValue(a)-baseValue(b)); for(const c of pool){ if(isWildCard(c)) continue; if(c.rank!=='A' || hasM) return c; } return pool[0]; }
+function botTakeOption(hand){
+  const me=curPl();
+  const t1=discard.slice(-1).map(e=>e.card); const t2=discard.slice(-2).map(e=>e.card); const t3=discard.slice(-3).map(e=>e.card);
+  const opts=[[1,t1],[2,t2],[3,t3]];
+  const handSet=new Set(me.hand.map(c=>c.id));
+  const allowAce=!!me.hasMelded; // Ace set hanya jika sudah pernah meld
+  for(let i=opts.length-1;i>=0;i--){
+    const [n,arr]=opts[i];
+    if(arr.length===n){
+      const reqIds = arr.map(c=>c.id);
+      const pool   = me.hand.concat(arr);
+      if(existsNumberRunUsing(reqIds, pool, handSet, allowAce)) return n;
+    }
+  }
+  return 0;
+}
+function delay(){ const v=document.getElementById('botSpeed').value; const ms=(v==='slow')?600:(v==='fast')?80:(v==='turbo')?0:250; return new Promise(r=>setTimeout(r,ms)); }
+async function botTurn(){
+  const me=curPl(); if(!me||!me.isBot||roundOver) return;
+  if(!hasDrawn){
+    await delay();
+    const t=botTakeOption(me.hand);
+    if(t===0){ if(deck.length){ me.hand.push(deck.shift()); hasDrawn=true; lastDrawFromDiscard=false; if(deck.length===0) deckEndPending=true; logh(me.name+' ambil dari Deck'); } }
+    else{ const slice=discard.slice(discard.length-t); const take=slice.map(e=>e.card); discard=discard.slice(0,discard.length-t); me.hand=me.hand.concat(take); hasDrawn=true; mustUseDiscard=true; lastDrawFromDiscard=true; drawnIds={}; drawnOwnerMap={}; usedDiscardInRun=false; slice.forEach(s=>{ drawnIds[s.card.id]=1; drawnOwnerMap[s.card.id]=s.ownerIndex; }); logh(me.name+' ambil dari Discard '+t); }
+    renderAll(); return botTurn();
+  }
+  let tries=0, maxT=document.getElementById('limit1').checked?1:3;
+  while(tries<maxT){
+    const plan=anyMeld(me.hand); if(!plan) break;
+    if(plan.kind==='number'){ for(const c of plan.cards){ if(drawnIds[c.id]){ usedDiscardInRun=true; lastUsedDrawnId=c.id; lastUsedDrawnRank=c.rank; } } }
+    const ids={}; plan.cards.forEach(c=>ids[c.id]=1);
+    me.hand=me.hand.filter(c=>!ids[c.id]);
+    const meld = (plan.kind==='jqk')?isJQKRun(plan.cards) :(plan.kind==='aces')?isAceSet(plan.cards) :numberRun(plan.cards);
+    if(meld){ me.melds.push(meld); me.hasMelded=true; if(meld.type!=='ace-set') me.hasNonAceMeld=true; }
+    logh(me.name+' MELD: '+plan.kind); renderAll(); tries++;
+  }
+  await delay();
+  if(me.hand.length===0){ endRound({closer:cur}); return; }
+  const card=chooseDiscard(me.hand,me.hasMelded); if(isWildCard(card)){ logh(me.name+' membuang WILD!'); endRoundPenalty(cur); return; }
+  me.hand=me.hand.filter(c=>c.id!==card.id); discard.push({card,ownerIndex:cur}); closingDiscardRank=card.rank; logh(me.name+' buang '+card.rank+card.suit); renderAll(); if(deckEndPending){ deckEndPending=false; endRound({closer:cur, closeDiscardRank:closingDiscardRank}); return; } if(me.hand.length===0) endRound({closer:cur, closeDiscardRank:closingDiscardRank}); else nextTurn();
+}
+function maybeBot(){ const me=curPl(); if(me&&me.isBot&&document.getElementById('autoBot').checked) botTurn(); }
+
+/* Render */
+function renderCardEl(card,clickable){
+  const el=document.createElement('div');
+  el.className='card '+(isRed(card.suit)?'red':'')+(selected[card.id]?' sel':'');
+  el.draggable=clickable; el.dataset.id=card.id; el.textContent=card.rank+card.suit;
+  if(isWildCard(card)){ const tag=document.createElement('div'); tag.className='wildTag'; tag.textContent='WILD'; el.appendChild(tag); }
+  if(card.isWildSub){ const b=document.createElement('div'); b.className='badge'; b.textContent='WILD→'+card.substitutedTo; el.appendChild(b); }
+  if(clickable){
+    el.addEventListener('click',()=>{ if(selected[card.id]) delete selected[card.id]; else selected[card.id]=1; renderHand(); });
+    el.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain', String(card.id)); });
+  }
+  return el;
+}
+function renderDiscardCard(card,widthPx){
+  const el=renderCardEl(card,false);
+  el.style.minWidth=widthPx+'px';
+  el.style.maxWidth=widthPx+'px';
+  return el;
+}
+function renderPlayers(){
+  const box=document.getElementById('players'); box.innerHTML='';
+  players.forEach((p,idx)=>{
+    const div=document.createElement('div'); div.className='player'+(idx===cur?' active':'');
+    div.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center"><div><b>'+p.name+'</b> '+(p.isBot?'<span class="sub" style="padding:2px 6px;background:#eef2ff;border-radius:999px;color:#4338ca">BOT</span>':'')+(idx===cur?'<span class="sub" style="color:#4f46e5">(giliran)</span>':'')+'</div><div class="sub">Kartu: '+p.hand.length+' • Meld: '+p.melds.length+' • '+(p.hasMelded?'Sudah':'Belum')+' meld</div></div>';
+    p.melds.forEach(mm=>{
+      const c=document.createElement('div'); c.className='meld';
+      const t=document.createElement('div'); t.className='sub';
+      t.textContent=(mm.type==='number-run'?'Run Angka':mm.type==='jqk-run'?'Run JQK':'Set As')+(mm.suit?(' • '+mm.suit):'');
+      c.appendChild(t);
+      const wrap=document.createElement('div'); wrap.className='cards';
+      mm.cards.forEach(k=>wrap.appendChild(renderCardEl(k,false)));
+      c.appendChild(wrap); div.appendChild(c);
+    });
+    box.appendChild(div);
+  });
+}
+function renderStock(){
+  document.getElementById('deckCount').textContent=String(deck.length);
+  const strip=document.getElementById('discardStrip'); strip.innerHTML='';
+  const ctl=document.getElementById('discardCtl'); ctl.innerHTML='';
+  const lastN = Math.min(7, discard.length);
+  const cards = discard.slice(discard.length - lastN).map(e => e.card); // lama -> baru
+  const per = 76;
+  const totalCols = Math.max(5, cards.length); // minimal 5 kolom
+  strip.style.gridTemplateColumns = 'repeat(' + totalCols + ', ' + per + 'px)';
+  ctl.style.gridTemplateColumns   = 'repeat(' + totalCols + ', ' + per + 'px)';
+  // Render kartu (kolom kiri ke kanan)
+  for(let i=0;i<cards.length;i++){
+    const c = cards[i];
+    const slotTop=document.createElement('div'); slotTop.className='slot';
+    slotTop.appendChild(renderDiscardCard(c, per));
+    strip.appendChild(slotTop);
+    const slot=document.createElement('div'); slot.className='slot';
+    const posFromRightCard = (cards.length - 1) - i;
+    if(posFromRightCard<=2){
+      const n = posFromRightCard + 1; // 1/2/3
+      const b=document.createElement('button'); b.className='btn amber min'; b.textContent='Ambil';
+      b.onclick=()=>takeDiscard(n);
+      slot.appendChild(b);
+    }
+    ctl.appendChild(slot);
+  }
+  // Placeholder di kanan agar selalu 5 kolom
+  const pads = Math.max(0, totalCols - cards.length);
+  for(let i=0;i<pads;i++){
+    const ph = document.createElement('div'); ph.className='slot ph'; strip.appendChild(ph);
+    const ph2= document.createElement('div'); ph2.className='slot ph'; ctl.appendChild(ph2);
+  }
+  // Stock habis: akhiri ronde otomatis dengan perhitungan deadwood+melt
+  if(deck.length===0 && !roundOver){ /* tunggu pemain yang mengambil kartu terakhir membuang dulu */ }
+}
+function renderHand(){
+  const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
+  const me=players[playerIndex]; if(!me) return;
+  const handBox=document.getElementById('hand'); handBox.innerHTML='';
+  const clickable = isMultiplayer ? (cur===myPlayerIndex) : (cur===HUMAN_IDX);
+  me.hand.forEach(c=>handBox.appendChild(renderCardEl(c,clickable)));
+  document.getElementById('handTitle').textContent='Tangan '+me.name;
+  document.getElementById('btnDiscard').disabled=roundOver||!clickable;
+  
+  if(isMultiplayer) {
+    if(cur !== myPlayerIndex) {
+      const currentPlayerName = players[cur] ? players[cur].name : 'Pemain';
+      document.getElementById('hint').textContent = `Menunggu ${currentPlayerName}...`;
+    } else {
+      document.getElementById('hint').textContent = '';
+    }
+  } else {
+  document.getElementById('hint').textContent=(cur!==HUMAN_IDX)?'Menunggu BOT...':'';
+  }
+}
+function renderWildInfo(){
+  const txt=document.getElementById('wildTxt'); txt.textContent='Semua '+WILD_RANK+' adalah WILD (♠♥♦♣)';
+  const box=document.getElementById('wildSample'); box.innerHTML='';
+  for(const s of SUITS) box.appendChild(renderCardEl({id:-1,rank:WILD_RANK,suit:s},false));
+}
+function renderAll(){ renderPlayers(); renderStock(); renderHand(); renderWildInfo(); setHint(''); }
+window.addEventListener('resize', ()=>{ if(document.getElementById('game').style.display!=='none') renderStock(); });
+
+/* Game Loop */
+// Multiplayer game start is handled by startMultiplayerGame function
+
+/* Bindings */
+window.addEventListener('DOMContentLoaded',()=>{
+  // Initialize socket connection
+  setTimeout(() => {
+    initSocket();
+  }, 100); // Small delay to ensure DOM is fully loaded
+  
+  // Multiplayer UI event handlers
+  const createRoomBtn = document.getElementById('createRoomBtn');
+  if (createRoomBtn) {
+    createRoomBtn.addEventListener('click', () => {
+      const playerNameInput = document.getElementById('playerNameInput');
+      if (!playerNameInput) return;
+      
+      const playerName = playerNameInput.value.trim();
+      if (!playerName) {
+        alert('Masukkan nama Anda terlebih dahulu');
+        return;
+      }
+      if (!socket) {
+        alert('Koneksi ke server belum tersedia');
+        return;
+      }
+      socket.emit('createRoom', { playerName: playerName });
+    });
+  }
+  
+  const joinRoomBtn = document.getElementById('joinRoomBtn');
+  if (joinRoomBtn) {
+    joinRoomBtn.addEventListener('click', () => {
+      const playerNameInput = document.getElementById('playerNameInput');
+      const roomIdInput = document.getElementById('roomIdInput');
+      
+      if (!playerNameInput || !roomIdInput) return;
+      
+      const playerName = playerNameInput.value.trim();
+      const roomId = roomIdInput.value.trim().toUpperCase();
+      
+      if (!playerName) {
+        alert('Masukkan nama Anda terlebih dahulu');
+        return;
+      }
+      if (!roomId) {
+        alert('Masukkan Room ID');
+        return;
+      }
+      if (!socket) {
+        alert('Koneksi ke server belum tersedia');
+        return;
+      }
+      socket.emit('joinRoom', { playerName: playerName, roomId: roomId });
+    });
+  }
+  
+  const readyBtn = document.getElementById('readyBtn');
+  if (readyBtn) {
+    readyBtn.addEventListener('click', () => {
+      if (!socket || !currentRoomId) return;
+      isReady = !isReady;
+      socket.emit('toggleReady', { roomId: currentRoomId });
+    });
+  }
+  
+  const startGameBtn = document.getElementById('startGameBtn');
+  if (startGameBtn) {
+    startGameBtn.addEventListener('click', () => {
+      if (!socket || !currentRoomId || !roomPlayers.length) return;
+      
+      const numPlayers = roomPlayers.length;
+      const wildRank = RANKS[Math.floor(Math.random()*RANKS.length)];
+      
+      // Create initial game state
+      const initialDeck = shuffle(mkDeck());
+      const gameState = {
+        wildRank: wildRank,
+        deck: initialDeck,
+        discard: [],
+        currentPlayer: 0,
+        numPlayers: numPlayers,
+        playerHands: []
+      };
+      
+      // Deal initial cards
+      const init = (numPlayers===2?8:(numPlayers===3?7:6));
+      for(let i=0; i<numPlayers; i++) {
+        gameState.playerHands[i] = [];
+      }
+      for(let r=0; r<init; r++) {
+        for(let p=0; p<numPlayers; p++) {
+          gameState.playerHands[p].push(gameState.deck.shift());
+        }
+      }
+      
+      socket.emit('startGame', { 
+        roomId: currentRoomId, 
+        gameState: gameState 
+      });
+    });
+  }
+  
+  const leaveRoomBtn = document.getElementById('leaveRoomBtn');
+  if (leaveRoomBtn) {
+    leaveRoomBtn.addEventListener('click', () => {
+      if (socket) {
+        socket.disconnect();
+        socket.connect();
+      }
+      showMainMenu();
+    });
+  }
+  
+  const sendChatBtn = document.getElementById('sendChatBtn');
+  if (sendChatBtn) {
+    sendChatBtn.addEventListener('click', () => {
+      const input = document.getElementById('chatInput');
+      if (!input || !socket || !currentRoomId) return;
+      
+      const message = input.value.trim();
+      if (message) {
+        socket.emit('chatMessage', { 
+          roomId: currentRoomId, 
+          message: message 
+        });
+        input.value = '';
+      }
+    });
+  }
+  
+  const chatInput = document.getElementById('chatInput');
+  if (chatInput) {
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        const sendBtn = document.getElementById('sendChatBtn');
+        if (sendBtn) sendBtn.click();
+      }
+    });
+  }
+  
+  // Game action handlers
+  const btnDrawDeck = document.getElementById('btnDrawDeck');
+  const btnRunNum = document.getElementById('btnRunNum');
+  const btnRunJQK = document.getElementById('btnRunJQK');
+  const btnSetA = document.getElementById('btnSetA');
+  const btnDiscard = document.getElementById('btnDiscard');
+  const btnResetSel = document.getElementById('btnResetSel');
+  
+  if (btnDrawDeck) btnDrawDeck.onclick = drawDeck;
+  if (btnRunNum) btnRunNum.onclick = () => tryMeld('number');
+  if (btnRunJQK) btnRunJQK.onclick = () => tryMeld('jqk');
+  if (btnSetA) btnSetA.onclick = () => tryMeld('aces');
+  if (btnDiscard) btnDiscard.onclick = discardSel;
+  if (btnResetSel) btnResetSel.onclick = () => {selected={}; renderHand();};
+  const btnSortSuit = document.getElementById('btnSortSuit');
+  const btnSortRank = document.getElementById('btnSortRank');
+  
+  if (btnSortSuit) {
+    btnSortSuit.onclick = () => {
+      const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
+      const me = players[playerIndex]; 
+      const order = ['♠','♥','♦','♣'];
+      if (!me || !me.hand) return;
+      me.hand.sort((a,b) => order.indexOf(a.suit) - order.indexOf(b.suit) || (r2n(a.rank) - r2n(b.rank)));
+      renderHand();
+    };
+  }
+  
+  if (btnSortRank) {
+    btnSortRank.onclick = () => {
+      const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
+      const me = players[playerIndex]; 
+      if (!me || !me.hand) return;
+      me.hand.sort((a,b) => (r2n(a.rank) - r2n(b.rank)) || a.suit.localeCompare(b.suit));
+      renderHand();
+    };
+  }
+  
+  const handEl = document.getElementById('hand');
+  if (handEl) {
+    handEl.addEventListener('dragover', e => e.preventDefault());
+    handEl.addEventListener('drop', e => {
+      e.preventDefault(); 
+      const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
+      if (isMultiplayer && cur !== myPlayerIndex) return;
+      if (!isMultiplayer && cur !== HUMAN_IDX) return;
+      
+      const id = +e.dataTransfer.getData('text/plain'); 
+      const me = players[playerIndex];
+      if (!me || !me.hand) return;
+      
+      const i = me.hand.findIndex(c => c.id === id); 
+      if (i < 0) return;
+      
+      const rects = [...handEl.children].map(ch => ch.getBoundingClientRect());
+      const x = e.clientX; 
+      let target = me.hand.length - 1;
+      
+      for (let t = 0; t < rects.length; t++) {
+        if (x < rects[t].left + rects[t].width / 2) { 
+          target = t; 
+          break; 
+        }
+      }
+      
+      const card = me.hand.splice(i, 1)[0]; 
+      me.hand.splice(target, 0, card); 
+      renderHand();
+    });
+  }
+  
+  const btnNextRound = document.getElementById('btnNextRound');
+  const btnResetSeries = document.getElementById('btnResetSeries');
+  
+  if (btnNextRound) {
+    btnNextRound.addEventListener('click', () => {
+      const overlay = document.getElementById('overlay');
+      if (overlay) overlay.style.display = 'none'; 
+      roundNo++; 
+      if (isMultiplayer) {
+        // In multiplayer, host should restart the game
+        showRoomLobby();
+      } else {
+        // Single player mode (not implemented in this version)
+      }
+    });
+  }
+  
+  if (btnResetSeries) {
+    btnResetSeries.addEventListener('click', () => {
+      totalScores = []; 
+      roundNo = 1;
+      const overlay = document.getElementById('overlay');
+      if (overlay) overlay.style.display = 'none';
+      if (isMultiplayer) {
+        showRoomLobby();
+      } else {
+        showMainMenu();
+      }
+    });
+  }
+});
+})();</script>
+</body>
+</html>
