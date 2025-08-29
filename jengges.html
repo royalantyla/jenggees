@@ -17,15 +17,17 @@
   .player{border:1px solid #e5e7eb;border-radius:14px;padding:10px}
   .player.active{box-shadow:0 0 0 3px #c7d2fe}
   .cards{display:flex;flex-wrap:nowrap;gap:8px;align-items:center;overflow-x:auto}
-  /* Hand grid: max 8 per row for larger capacity, wrap to next row if needed */
+  /* Hand grid: full width layout with more cards per row */
   #hand.cards{
     display:grid !important;
-    grid-template-columns: repeat(8, 76px);
+    grid-template-columns: repeat(auto-fit, 76px);
     grid-auto-rows: auto;
-    gap:8px;
+    gap:10px;
     align-items:start;
+    justify-content:center;
     overflow-x:visible;
-    min-height: 120px; /* Ensure enough height for cards */
+    min-height: 160px;
+    max-width: 100%;
   }
 
   .card{position:relative;min-width:76px;max-width:76px;padding:12px 14px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,.04);text-align:center;font-weight:800;font-size:20px}
@@ -54,6 +56,33 @@
   .slot{width:76px;display:flex;justify-content:center}
   .slot button{width:100%;}
   .ph{visibility:hidden}
+  
+  /* Responsive improvements */
+  @media (max-width: 1200px) {
+    #hand.cards {
+      grid-template-columns: repeat(auto-fit, 70px);
+      gap: 8px;
+    }
+    .card {
+      min-width: 70px;
+      max-width: 70px;
+      padding: 10px 12px;
+      font-size: 18px;
+    }
+  }
+  
+  @media (max-width: 768px) {
+    #hand.cards {
+      grid-template-columns: repeat(auto-fit, 60px);
+      gap: 6px;
+    }
+    .card {
+      min-width: 60px;
+      max-width: 60px;
+      padding: 8px 10px;
+      font-size: 16px;
+    }
+  }
 </style>
 </head>
 <body>
@@ -117,7 +146,8 @@
   </div>
 
   <div id="game" style="display:none">
-    <div class="row" style="margin-top:12px">
+    <!-- Top Section: Players and Game Info -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
       <div id="players" class="players"></div>
 
       <div class="panel">
@@ -140,28 +170,48 @@
           <div id="wildSample" class="cards" style="margin-top:6px"></div>
           <div style="margin-top:6px">
             <div class="sub"><b>History Buang & Aksi</b></div>
-            <textarea id="history" readonly></textarea>
+            <textarea id="history" readonly style="height:120px;"></textarea>
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="panel">
-        <div class="sub"><b id="handTitle">Tangan</b> — Pilih 1 utk buang, 3+ utk meld • Drag untuk menata</div>
-        <div id="hand" class="cards" style="margin-top:6px; min-height:140px; padding:10px; border:1px solid #e5e7eb; border-radius:8px; background:#f8fafc;"></div>
-        <div style="margin-top:8px">
-          <button class="btn red" id="btnDiscard">Buang Kartu Terpilih</button>
-          <button class="btn gray" id="btnResetSel">Reset Pilihan</button>
-          <button class="btn" id="btnSortSuit">Sort Suit</button>
-          <button class="btn" id="btnSortRank">Sort Rank</button>
+    <!-- Bottom Section: Player Hand (Full Width) -->
+    <div class="panel" style="margin-top:16px">
+      <div class="sub"><b id="handTitle">Tangan</b> — Pilih 1 utk buang, 3+ utk meld • Drag untuk menata</div>
+      <div id="hand" class="cards" style="margin-top:8px; min-height:160px; padding:12px; border:2px solid #e5e7eb; border-radius:12px; background:#f8fafc;"></div>
+      
+      <!-- Action Buttons Row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px">
+        <!-- Card Actions -->
+        <div class="panel" style="padding:8px">
+          <div class="sub" style="margin-bottom:6px"><b>Aksi Kartu</b></div>
+          <button class="btn red" id="btnDiscard" style="width:100%;margin-bottom:4px">Buang Kartu Terpilih</button>
+          <button class="btn gray" id="btnResetSel" style="width:100%">Reset Pilihan</button>
         </div>
-        <div style="margin-top:8px">
-          <div class="sub" style="margin-bottom:6px">Aksi Meld</div>
-          <button class="btn" id="btnRunNum">Run Angka</button>
-          <button class="btn" id="btnRunJQK">Run J-Q-K</button>
-          <button class="btn gray" id="btnSetA">Set As</button>
+        
+        <!-- Meld Actions -->
+        <div class="panel" style="padding:8px">
+          <div class="sub" style="margin-bottom:6px"><b>Aksi Meld</b></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+            <button class="btn" id="btnRunNum">Run Angka</button>
+            <button class="btn" id="btnRunJQK">Run J-Q-K</button>
+            <button class="btn gray" id="btnSetA">Set As</button>
+          </div>
         </div>
-        <div class="sub" id="hint" style="margin-top:8px">&nbsp;</div>
+        
+        <!-- Sort Actions -->
+        <div class="panel" style="padding:8px">
+          <div class="sub" style="margin-bottom:6px"><b>Urutkan Kartu</b></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+            <button class="btn" id="btnSortSuit">Sort Suit</button>
+            <button class="btn" id="btnSortRank">Sort Rank</button>
+          </div>
+        </div>
       </div>
+      
+      <!-- Hint/Status -->
+      <div class="sub" id="hint" style="margin-top:8px;text-align:center;font-weight:bold;color:#4f46e5">&nbsp;</div>
     </div>
   </div>
 </div>
