@@ -15,6 +15,11 @@ const io = socketIo(server, {
 // Serve static files
 app.use(express.static(__dirname));
 
+// Root route - serve the main game
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'jengges.html'));
+});
+
 // Game rooms storage
 const rooms = new Map();
 

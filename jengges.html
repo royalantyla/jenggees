@@ -17,14 +17,15 @@
   .player{border:1px solid #e5e7eb;border-radius:14px;padding:10px}
   .player.active{box-shadow:0 0 0 3px #c7d2fe}
   .cards{display:flex;flex-wrap:nowrap;gap:8px;align-items:center;overflow-x:auto}
-  /* Hand grid: max 5 per row, wrap to next row */
+  /* Hand grid: max 8 per row for larger capacity, wrap to next row if needed */
   #hand.cards{
     display:grid !important;
-    grid-template-columns: repeat(5, 76px);
+    grid-template-columns: repeat(8, 76px);
     grid-auto-rows: auto;
     gap:8px;
     align-items:start;
     overflow-x:visible;
+    min-height: 120px; /* Ensure enough height for cards */
   }
 
   .card{position:relative;min-width:76px;max-width:76px;padding:12px 14px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,.04);text-align:center;font-weight:800;font-size:20px}
@@ -127,7 +128,7 @@
             <div style="text-align:center;margin-top:6px"><button id="btnDrawDeck" class="btn green">Ambil 1</button></div>
           </div>
           <div class="panel">
-            <div class="sub">Discard (7 terakhir) — tombol ambil di 3 teratas</div>
+            <div class="sub">Discard (7 terbaru) — Kartu baru di KIRI, tombol ambil 3 terbaru</div>
             <div id="discardStrip" class="gridstrip" style="margin-top:6px"></div>
             <div id="discardCtl" class="gridstrip" style="margin-top:6px"></div>
           </div>
@@ -146,7 +147,7 @@
 
       <div class="panel">
         <div class="sub"><b id="handTitle">Tangan</b> — Pilih 1 utk buang, 3+ utk meld • Drag untuk menata</div>
-        <div id="hand" class="cards" style="margin-top:6px"></div>
+        <div id="hand" class="cards" style="margin-top:6px; min-height:140px; padding:10px; border:1px solid #e5e7eb; border-radius:8px; background:#f8fafc;"></div>
         <div style="margin-top:8px">
           <button class="btn red" id="btnDiscard">Buang Kartu Terpilih</button>
           <button class="btn gray" id="btnResetSel">Reset Pilihan</button>
@@ -531,9 +532,74 @@ function handleRemoteAction(action, playerId, data) {
     case 'discard':
       logh(players[playerIndex].name + ' buang ' + data.card.rank + data.card.suit);
       break;
+    case 'gameEnd':
+      handleGameEnd(data);
+      break;
+    case 'gameEndPenalty':
+      handleGameEndPenalty(data);
+      break;
   }
   
   renderAll();
+}
+
+function handleGameEnd(data) {
+  if (!isMultiplayer) return;
+  
+  // Update game state
+  roundOver = true;
+  roundNo = data.roundNo;
+  WILD_RANK = data.wildRank;
+  
+  // Update players with final state
+  if (data.players) {
+    data.players.forEach((serverPlayer, index) => {
+      if (players[index]) {
+        Object.assign(players[index], serverPlayer);
+      }
+    });
+  }
+  
+  // Update scores
+  if (data.totalScores) {
+    totalScores = data.totalScores.slice();
+  }
+  
+  // Show scoreboard
+  const info = {
+    closer: data.closer,
+    closeDiscardRank: data.closeDiscardRank
+  };
+  
+  showScoreboard(data.scores, info);
+  logh('Ronde selesai! Pemenang: ' + players[data.closer].name);
+}
+
+function handleGameEndPenalty(data) {
+  if (!isMultiplayer) return;
+  
+  // Update game state
+  roundOver = true;
+  roundNo = data.roundNo;
+  WILD_RANK = data.wildRank;
+  
+  // Update players with final state
+  if (data.players) {
+    data.players.forEach((serverPlayer, index) => {
+      if (players[index]) {
+        Object.assign(players[index], serverPlayer);
+      }
+    });
+  }
+  
+  // Update scores
+  if (data.totalScores) {
+    totalScores = data.totalScores.slice();
+  }
+  
+  // Show penalty scoreboard
+  showPenaltyScoreboard(data.scores, data.offender);
+  logh('Ronde selesai! ' + players[data.offender].name + ' kena penalty karena buang WILD');
 }
 
 function broadcastGameState() {
@@ -971,7 +1037,9 @@ function applyCloseBonusIfAny(pts, info){
   }
 }
 function endRound(info){ clearTurnTimer();
-  roundOver=true; renderAll();
+  roundOver=true; 
+  
+  // Auto-meld remaining cards for all players
   for(const p of players){
     let plan; let guard=0;
     while((plan=anyMeld(p.hand)) && guard++<10){
@@ -981,36 +1049,124 @@ function endRound(info){ clearTurnTimer();
       if(meld){ p.melds.push(meld); p.hasMelded=true; if(meld.type!=='ace-set') p.hasNonAceMeld=true; }
     }
   }
+  
+  // Calculate scores
   const pts=[]; for(const p of players) pts.push(meldPoints(p) - deadPenalty(p));
   applyCloseBonusIfAny(pts, info);
   if(totalScores.length!==players.length) totalScores=Array(players.length).fill(0);
   for(let i=0;i<players.length;i++) totalScores[i]+=pts[i];
+  
+  // Broadcast game end to all players if multiplayer
+  if(isMultiplayer && socket && currentRoomId) {
+    const gameEndData = {
+      roundOver: true,
+      players: players.map((p, i) => ({
+        name: p.name,
+        hand: p.hand,
+        melds: p.melds,
+        hasMelded: p.hasMelded,
+        hasNonAceMeld: p.hasNonAceMeld
+      })),
+      scores: pts,
+      totalScores: totalScores,
+      roundNo: roundNo,
+      wildRank: WILD_RANK,
+      closer: info.closer,
+      closeDiscardRank: info.closeDiscardRank
+    };
+    
+    socket.emit('gameAction', {
+      roomId: currentRoomId,
+      action: 'gameEnd',
+      actionData: gameEndData
+    });
+  }
+  
+  // Show scoreboard locally
+  showScoreboard(pts, info);
+  renderAll();
+  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+}
+
+function showScoreboard(pts, info) {
   const box=document.getElementById('scoreRows');
+  if (!box) return;
+  
   box.innerHTML='<div class="srow head"><div>Pemain</div><div>Skor Ronde</div><div>Total</div></div>';
   players.forEach((p,i)=>{
     const row=document.createElement('div'); row.className='srow';
     row.innerHTML='<div>'+p.name+(i===info.closer?' <span class="sub" style="color:#16a34a">(menutup)</span>':'')+'</div><div>'+pts[i]+'</div><div>'+totalScores[i]+'</div>';
     box.appendChild(row);
   });
-  document.getElementById('roundInfo').textContent='Ronde '+roundNo+' • Wild: '+WILD_RANK+' • Pemenang: '+players[info.closer].name;
-  document.getElementById('overlay').style.display='flex';
-  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+  
+  const roundInfoEl = document.getElementById('roundInfo');
+  const overlayEl = document.getElementById('overlay');
+  
+  if (roundInfoEl) {
+    roundInfoEl.textContent='Ronde '+roundNo+' • Wild: '+WILD_RANK+' • Pemenang: '+players[info.closer].name;
+  }
+  if (overlayEl) {
+    overlayEl.style.display='flex';
+  }
 }
 function endRoundPenalty(offender){
-  roundOver=true; renderAll();
+  roundOver=true; 
   const pts=Array(players.length).fill(0); pts[offender]+=-250;
   if(totalScores.length!==players.length) totalScores=Array(players.length).fill(0);
   for(let i=0;i<players.length;i++) totalScores[i]+=pts[i];
+  
+  // Broadcast penalty game end to all players if multiplayer
+  if(isMultiplayer && socket && currentRoomId) {
+    const gameEndData = {
+      roundOver: true,
+      penalty: true,
+      offender: offender,
+      players: players.map((p, i) => ({
+        name: p.name,
+        hand: p.hand,
+        melds: p.melds,
+        hasMelded: p.hasMelded,
+        hasNonAceMeld: p.hasNonAceMeld
+      })),
+      scores: pts,
+      totalScores: totalScores,
+      roundNo: roundNo,
+      wildRank: WILD_RANK
+    };
+    
+    socket.emit('gameAction', {
+      roomId: currentRoomId,
+      action: 'gameEndPenalty',
+      actionData: gameEndData
+    });
+  }
+  
+  // Show penalty scoreboard locally
+  showPenaltyScoreboard(pts, offender);
+  renderAll();
+  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+}
+
+function showPenaltyScoreboard(pts, offender) {
   const box=document.getElementById('scoreRows');
+  if (!box) return;
+  
   box.innerHTML='<div class="srow head"><div>Pemain</div><div>Skor Ronde</div><div>Total</div></div>';
   players.forEach((p,i)=>{
     const row=document.createElement('div'); row.className='srow';
     row.innerHTML='<div>'+p.name+(i===offender?' <span class="sub" style="color:#ef4444">(buang WILD)</span>':'')+'</div><div>'+pts[i]+'</div><div>'+totalScores[i]+'</div>';
     box.appendChild(row);
   });
-  document.getElementById('roundInfo').textContent='Ronde '+roundNo+' • Wild: '+WILD_RANK+' • Pelanggaran: '+players[offender].name+' membuang WILD';
-  document.getElementById('overlay').style.display='flex';
-  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+  
+  const roundInfoEl = document.getElementById('roundInfo');
+  const overlayEl = document.getElementById('overlay');
+  
+  if (roundInfoEl) {
+    roundInfoEl.textContent='Ronde '+roundNo+' • Wild: '+WILD_RANK+' • Pelanggaran: '+players[offender].name+' membuang WILD';
+  }
+  if (overlayEl) {
+    overlayEl.style.display='flex';
+  }
 }
 
 /* BOT */
@@ -1099,33 +1255,37 @@ function renderStock(){
   const strip=document.getElementById('discardStrip'); strip.innerHTML='';
   const ctl=document.getElementById('discardCtl'); ctl.innerHTML='';
   const lastN = Math.min(7, discard.length);
-  const cards = discard.slice(discard.length - lastN).map(e => e.card); // lama -> baru
+  const cards = discard.slice(discard.length - lastN).map(e => e.card).reverse(); // BARU -> lama (kartu baru di kiri)
   const per = 76;
   const totalCols = Math.max(5, cards.length); // minimal 5 kolom
   strip.style.gridTemplateColumns = 'repeat(' + totalCols + ', ' + per + 'px)';
   ctl.style.gridTemplateColumns   = 'repeat(' + totalCols + ', ' + per + 'px)';
-  // Render kartu (kolom kiri ke kanan)
+  
+  // Render kartu (kartu BARU di KIRI)
   for(let i=0;i<cards.length;i++){
     const c = cards[i];
     const slotTop=document.createElement('div'); slotTop.className='slot';
     slotTop.appendChild(renderDiscardCard(c, per));
     strip.appendChild(slotTop);
     const slot=document.createElement('div'); slot.className='slot';
-    const posFromRightCard = (cards.length - 1) - i;
-    if(posFromRightCard<=2){
-      const n = posFromRightCard + 1; // 1/2/3
-      const b=document.createElement('button'); b.className='btn amber min'; b.textContent='Ambil';
+    
+    // Button "Ambil" untuk 3 kartu terbaru (posisi 0, 1, 2 dari kiri)
+    if(i <= 2){
+      const n = i + 1; // 1/2/3 kartu dari atas
+      const b=document.createElement('button'); b.className='btn amber min'; b.textContent='Ambil ' + n;
       b.onclick=()=>takeDiscard(n);
       slot.appendChild(b);
     }
     ctl.appendChild(slot);
   }
-  // Placeholder di kanan agar selalu 5 kolom
+  
+  // Placeholder di kanan agar selalu minimal 5 kolom
   const pads = Math.max(0, totalCols - cards.length);
   for(let i=0;i<pads;i++){
     const ph = document.createElement('div'); ph.className='slot ph'; strip.appendChild(ph);
     const ph2= document.createElement('div'); ph2.className='slot ph'; ctl.appendChild(ph2);
   }
+  
   // Stock habis: akhiri ronde otomatis dengan perhitungan deadwood+melt
   if(deck.length===0 && !roundOver){ /* tunggu pemain yang mengambil kartu terakhir membuang dulu */ }
 }

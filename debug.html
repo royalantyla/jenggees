@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="utf-8">
+    <title>Debug Jengges Game</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .warning { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; }
+        button { padding: 10px 20px; margin: 5px; }
+        #log { height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <h1>🔧 Debug Jengges Multiplayer</h1>
+    
+    <div id="connectionStatus" class="status warning">
+        Status: Menghubungkan ke server...
+    </div>
+    
+    <div>
+        <h3>Test Functions:</h3>
+        <button onclick="testSocketConnection()">Test Socket Connection</button>
+        <button onclick="testCreateRoom()">Test Create Room</button>
+        <button onclick="testJoinRoom()">Test Join Room</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+    
+    <div>
+        <h3>Game Test:</h3>
+        <input type="text" id="playerName" placeholder="Your Name" value="TestPlayer">
+        <input type="text" id="roomId" placeholder="Room ID" value="">
+        <br><br>
+        <button onclick="createTestRoom()">Create Room</button>
+        <button onclick="joinTestRoom()">Join Room</button>
+    </div>
+    
+    <h3>Debug Log:</h3>
+    <div id="log"></div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        let socket = null;
+        let currentRoomId = null;
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEl = document.getElementById('log');
+            const color = type === 'error' ? 'red' : type === 'success' ? 'green' : type === 'warning' ? 'orange' : 'black';
+            logEl.innerHTML += `<div style="color: ${color}">[${timestamp}] ${message}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(`[${timestamp}] ${message}`);
+        }
+        
+        function updateStatus(message, type) {
+            const statusEl = document.getElementById('connectionStatus');
+            statusEl.textContent = `Status: ${message}`;
+            statusEl.className = `status ${type}`;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function testSocketConnection() {
+            log('Testing Socket.IO connection...', 'info');
+            
+            if (typeof io === 'undefined') {
+                log('ERROR: Socket.IO library not loaded!', 'error');
+                updateStatus('Socket.IO library missing', 'error');
+                return;
+            }
+            
+            try {
+                if (socket) {
+                    socket.disconnect();
+                }
+                
+                socket = io();
+                log('Socket.IO instance created', 'success');
+                
+                socket.on('connect', () => {
+                    log(`Connected! Socket ID: ${socket.id}`, 'success');
+                    updateStatus('Connected to server', 'success');
+                });
+                
+                socket.on('disconnect', () => {
+                    log('Disconnected from server', 'warning');
+                    updateStatus('Disconnected', 'warning');
+                });
+                
+                socket.on('error', (error) => {
+                    log(`Socket error: ${error}`, 'error');
+                    updateStatus('Connection error', 'error');
+                });
+                
+                socket.on('roomCreated', (data) => {
+                    log(`Room created: ${data.roomId}`, 'success');
+                    currentRoomId = data.roomId;
+                    document.getElementById('roomId').value = data.roomId;
+                });
+                
+                socket.on('roomJoined', (data) => {
+                    log(`Joined room: ${data.roomId}`, 'success');
+                });
+                
+            } catch (error) {
+                log(`ERROR creating socket: ${error.message}`, 'error');
+                updateStatus('Failed to create socket', 'error');
+            }
+        }
+        
+        function testCreateRoom() {
+            if (!socket || !socket.connected) {
+                log('ERROR: Not connected to server', 'error');
+                return;
+            }
+            
+            const playerName = document.getElementById('playerName').value || 'TestPlayer';
+            log(`Creating room for player: ${playerName}`, 'info');
+            
+            socket.emit('createRoom', { playerName: playerName });
+        }
+        
+        function testJoinRoom() {
+            if (!socket || !socket.connected) {
+                log('ERROR: Not connected to server', 'error');
+                return;
+            }
+            
+            const playerName = document.getElementById('playerName').value || 'TestPlayer';
+            const roomId = document.getElementById('roomId').value;
+            
+            if (!roomId) {
+                log('ERROR: Room ID required', 'error');
+                return;
+            }
+            
+            log(`Joining room ${roomId} as ${playerName}`, 'info');
+            socket.emit('joinRoom', { playerName: playerName, roomId: roomId });
+        }
+        
+        function createTestRoom() {
+            testSocketConnection();
+            setTimeout(() => {
+                testCreateRoom();
+            }, 1000);
+        }
+        
+        function joinTestRoom() {
+            testSocketConnection();
+            setTimeout(() => {
+                testJoinRoom();
+            }, 1000);
+        }
+        
+        // Auto-start connection test
+        window.addEventListener('DOMContentLoaded', () => {
+            log('Debug page loaded', 'info');
+            setTimeout(testSocketConnection, 500);
+        });
+    </script>
+</body>
+</html>
