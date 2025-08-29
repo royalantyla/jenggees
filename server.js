@@ -9,7 +9,14 @@ const io = socketIo(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
-    }
+    },
+    pingTimeout: 60000,        // 60 detik sebelum disconnect
+    pingInterval: 25000,       // Ping setiap 25 detik
+    upgradeTimeout: 30000,     // 30 detik untuk upgrade transport
+    allowUpgrades: true,       // Allow WebSocket upgrades
+    transports: ['polling', 'websocket'],  // Support fallback
+    connectTimeout: 45000,     // 45 detik timeout untuk connect
+    maxHttpBufferSize: 1e6     // 1MB buffer
 });
 
 // Serve static files
@@ -243,6 +250,11 @@ io.on('connection', (socket) => {
                 timestamp: Date.now()
             });
         }
+    });
+
+    // Handle ping for keepalive
+    socket.on('ping', (timestamp) => {
+        socket.emit('pong', timestamp);
     });
 
     // Handle disconnect

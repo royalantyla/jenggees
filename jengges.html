@@ -250,6 +250,7 @@ let isHost = false;
 let isReady = false;
 let roomPlayers = [];
 let isMultiplayer = false;
+let heartbeatInterval = null;
 let myPlayerIndex = 0;
 
 let WILD_RANK='7';
@@ -317,7 +318,15 @@ function initSocket() {
   }
   
   try {
-    socket = io();
+    socket = io({
+      reconnection: true,           // Enable reconnection
+      reconnectionDelay: 1000,      // 1 detik delay sebelum reconnect
+      reconnectionDelayMax: 5000,   // Max 5 detik delay
+      maxReconnectionAttempts: 10,  // Max 10 percobaan reconnect
+      timeout: 20000,               // 20 detik timeout
+      forceNew: false,              // Reuse existing connection
+      transports: ['polling', 'websocket']  // Support fallback
+    });
   } catch (error) {
     console.error('Failed to connect to server:', error);
     document.getElementById('statusText').textContent = 'Error: Gagal terhubung ke server';
@@ -331,13 +340,75 @@ function initSocket() {
     const connectionEl = document.getElementById('connectionStatus');
     if (statusEl) statusEl.textContent = 'Terhubung';
     if (connectionEl) connectionEl.style.display = 'block';
+    
+    // Start heartbeat to keep connection alive
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    heartbeatInterval = setInterval(() => {
+      if (socket && socket.connected) {
+        socket.emit('ping', Date.now());
+      }
+    }, 30000); // Ping every 30 seconds
   });
 
-  socket.on('disconnect', () => {
-    console.log('Disconnected from server');
+  socket.on('disconnect', (reason) => {
+    console.log('Disconnected from server:', reason);
     const statusEl = document.getElementById('statusText');
-    if (statusEl) statusEl.textContent = 'Terputus';
+    if (statusEl) statusEl.textContent = 'Terputus (' + reason + ')';
+    
+    // Clear heartbeat
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
+    
+    // Don't reset state immediately for automatic reconnects
+    if (reason === 'io server disconnect' || reason === 'io client disconnect') {
+      // Server or client initiated disconnect - reset state
+      isMultiplayer = false;
+      currentRoomId = null;
+      roomPlayers = [];
+      showMainMenu();
+    }
+    // For transport errors, keep state and let reconnection handle it
+  });
+  
+  // Reconnection events
+  socket.on('reconnect_attempt', (attemptNumber) => {
+    console.log('Reconnection attempt:', attemptNumber);
+    const statusEl = document.getElementById('statusText');
+    if (statusEl) statusEl.textContent = `Mencoba reconnect... (${attemptNumber}/10)`;
+  });
+  
+  socket.on('reconnect', (attemptNumber) => {
+    console.log('Reconnected after', attemptNumber, 'attempts');
+    const statusEl = document.getElementById('statusText');
+    if (statusEl) statusEl.textContent = 'Terhubung kembali';
+    
+    // Update player ID
+    currentPlayerId = socket.id;
+    
+    // If we were in a room, try to rejoin (though room might be gone)
+    if (currentRoomId && isMultiplayer) {
+      console.log('Was in room', currentRoomId, 'but may need to rejoin manually');
+    }
+  });
+  
+  socket.on('reconnect_failed', () => {
+    console.log('Failed to reconnect after maximum attempts');
+    const statusEl = document.getElementById('statusText');
+    if (statusEl) statusEl.textContent = 'Koneksi gagal. Refresh halaman.';
+    
+    // Reset state after failed reconnection
+    isMultiplayer = false;
+    currentRoomId = null;
+    roomPlayers = [];
     showMainMenu();
+  });
+  
+  socket.on('connect_error', (error) => {
+    console.log('Connection error:', error);
+    const statusEl = document.getElementById('statusText');
+    if (statusEl) statusEl.textContent = 'Error: ' + error.message;
   });
 
   socket.on('roomCreated', (data) => {
