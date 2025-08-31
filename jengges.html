@@ -169,6 +169,13 @@
           <div class="legend sub">Kartu Wild: <span id="wildTxt"></span></div>
           <div id="wildSample" class="cards" style="margin-top:6px"></div>
           <div style="margin-top:6px">
+            <div class="sub"><b>Pengaturan</b></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+              <input type="checkbox" id="soundEnabled" checked style="margin:0">
+              <label for="soundEnabled" class="sub" style="margin:0">Notifikasi Suara Giliran</label>
+            </div>
+          </div>
+          <div style="margin-top:6px">
             <div class="sub"><b>History Buang & Aksi</b></div>
             <textarea id="history" readonly style="height:120px;"></textarea>
           </div>
@@ -269,6 +276,9 @@ let HUMAN_IDX=0, totalScores=[], roundNo=1, numPlayers=2;
 let selected={};
 let actionBusy=false;
 
+// Audio for turn notification
+let turnNotificationAudio = null;
+
 // Turn timer (20s)
 let turnTimerId=null, turnDeadline=0;
 function clearTurnTimer(){ if(turnTimerId){ clearInterval(turnTimerId); turnTimerId=null; } }
@@ -300,6 +310,36 @@ async function onTurnTimeout(){
       selected = {}; selected[toDiscard.id]=1;
       discardSel();
     }
+  }
+}
+
+// Function to play turn notification sound
+function playTurnNotificationSound() {
+  // Check if sound is enabled
+  const soundEnabled = document.getElementById('soundEnabled');
+  if (soundEnabled && !soundEnabled.checked) {
+    return; // Sound is disabled
+  }
+  
+  try {
+    // Initialize audio if not already done
+    if (!turnNotificationAudio) {
+      turnNotificationAudio = new Audio('notif turn.opus');
+      turnNotificationAudio.volume = 0.7; // Set volume to 70%
+      turnNotificationAudio.preload = 'auto'; // Preload audio for better performance
+    }
+    
+    // Reset audio to beginning and play
+    turnNotificationAudio.currentTime = 0;
+    turnNotificationAudio.play().catch(error => {
+      console.log('Audio play failed:', error);
+      // Try to reinitialize audio on error
+      turnNotificationAudio = null;
+    });
+  } catch (error) {
+    console.log('Error playing turn notification sound:', error);
+    // Reset audio object on error
+    turnNotificationAudio = null;
   }
 }
 
@@ -593,6 +633,9 @@ function startMultiplayerGame(gameState) {
   const history = document.getElementById('history');
   if (history) history.value = '';
   
+  // Play turn notification sound for first turn
+  playTurnNotificationSound();
+  
   renderAll();
   if (cur === myPlayerIndex) {
     startTurnTimer();
@@ -602,6 +645,9 @@ function startMultiplayerGame(gameState) {
 }
 
 function syncGameState(gameState) {
+  // Store previous current player to detect turn changes
+  const previousCurrentPlayer = cur;
+  
   // Update game state from server
   if (gameState.deck !== undefined) deck = gameState.deck;
   if (gameState.discard !== undefined) discard = gameState.discard;
@@ -624,6 +670,11 @@ function syncGameState(gameState) {
         players[index].hand = hand;
       }
     });
+  }
+  
+  // Play turn notification sound if current player changed
+  if (previousCurrentPlayer !== cur) {
+    playTurnNotificationSound();
   }
   
   renderAll();
@@ -1345,6 +1396,9 @@ function nextTurn(){
   lastUsedDrawnId=null; 
   lastUsedDrawnRank=null;
   
+  // Play turn notification sound
+  playTurnNotificationSound();
+  
   if(isMultiplayer) {
     broadcastGameState();
   }
@@ -1701,7 +1755,14 @@ async function botTurn(){
   const card=chooseDiscard(me.hand,me.hasMelded); if(isWildCard(card)){ logh(me.name+' membuang WILD!'); endRoundPenalty(cur); return; }
   me.hand=me.hand.filter(c=>c.id!==card.id); discard.push({card,ownerIndex:cur}); closingDiscardRank=card.rank; logh(me.name+' buang '+card.rank+card.suit); renderAll(); if(deckEndPending){ deckEndPending=false; endRound({closer:cur, closeDiscardRank:closingDiscardRank}); return; } if(me.hand.length===0) endRound({closer:cur, closeDiscardRank:closingDiscardRank}); else nextTurn();
 }
-function maybeBot(){ const me=curPl(); if(me&&me.isBot&&document.getElementById('autoBot').checked) botTurn(); }
+function maybeBot(){ 
+  const me=curPl(); 
+  if(me&&me.isBot&&document.getElementById('autoBot').checked) {
+    // Play turn notification sound for bot turn
+    playTurnNotificationSound();
+    botTurn(); 
+  }
+}
 
 /* Render */
 function renderCardEl(card,clickable){
@@ -2061,6 +2122,21 @@ window.addEventListener('DOMContentLoaded',()=>{
         showMainMenu();
       }
     });
+  }
+  
+  // Sound settings event listener
+  const soundEnabled = document.getElementById('soundEnabled');
+  if (soundEnabled) {
+    soundEnabled.addEventListener('change', () => {
+      // Save preference to localStorage
+      localStorage.setItem('soundEnabled', soundEnabled.checked);
+    });
+    
+    // Load saved preference
+    const savedSoundEnabled = localStorage.getItem('soundEnabled');
+    if (savedSoundEnabled !== null) {
+      soundEnabled.checked = savedSoundEnabled === 'true';
+    }
   }
 });
 })();</script>
