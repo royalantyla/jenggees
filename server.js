@@ -141,12 +141,48 @@ io.on('connection', (socket) => {
             return;
         }
 
-        if (room.isGameStarted) {
+        // Check if this is a reconnection attempt
+        const existingPlayerIndex = room.players.findIndex(p => p.name === data.playerName);
+        console.log(`Join attempt - Room: ${data.roomId}, Player: ${data.playerName}, Game started: ${room.isGameStarted}, Existing player index: ${existingPlayerIndex}`);
+        
+        if (room.isGameStarted && existingPlayerIndex === -1) {
+            // Game started and player is not in the room - reject
+            console.log('Rejecting join - game already started and player not found');
             socket.emit('error', { message: 'Game already started' });
             return;
         }
-
-        if (room.addPlayer(socket, data.playerName)) {
+        
+        if (existingPlayerIndex !== -1) {
+            // Player exists, this is a reconnection
+            const existingPlayer = room.players[existingPlayerIndex];
+            existingPlayer.socket = socket;
+            existingPlayer.id = socket.id;
+            existingPlayer.disconnected = false;
+            delete existingPlayer.disconnectTime;
+            
+            socket.join(data.roomId);
+            
+            if (room.isGameStarted) {
+                socket.emit('rejoinSuccess', {
+                    roomId: data.roomId,
+                    roomInfo: room.getRoomInfo(),
+                    gameState: room.gameState
+                });
+            } else {
+                socket.emit('roomJoined', { 
+                    roomId: data.roomId, 
+                    roomInfo: room.getRoomInfo() 
+                });
+            }
+            
+            // Notify other players
+            room.broadcastToRoom('playerJoined', {
+                roomInfo: room.getRoomInfo()
+            }, socket);
+            
+            console.log(`${data.playerName} reconnected to room ${data.roomId}`);
+        } else if (room.addPlayer(socket, data.playerName)) {
+            // New player joining
             socket.join(data.roomId);
             socket.emit('roomJoined', { 
                 roomId: data.roomId, 
@@ -257,23 +293,81 @@ io.on('connection', (socket) => {
         socket.emit('pong', timestamp);
     });
 
+    // Handle rejoin room
+    socket.on('rejoinRoom', (data) => {
+        console.log(`Rejoin attempt - Room: ${data.roomId}, Player: ${data.playerName}`);
+        const room = rooms.get(data.roomId);
+        
+        if (!room) {
+            console.log('Rejoin failed - room not found');
+            socket.emit('rejoinFailed', { message: 'Room not found' });
+            return;
+        }
+
+        // Try to find existing player slot by name
+        const existingPlayerIndex = room.players.findIndex(p => p.name === data.playerName);
+        console.log(`Rejoin - existing player index: ${existingPlayerIndex}, game started: ${room.isGameStarted}`);
+        
+        if (existingPlayerIndex !== -1) {
+            // Replace disconnected player
+            const existingPlayer = room.players[existingPlayerIndex];
+            existingPlayer.socket = socket;
+            existingPlayer.id = socket.id;
+            existingPlayer.disconnected = false;
+            delete existingPlayer.disconnectTime;
+            
+            socket.join(data.roomId);
+            
+            socket.emit('rejoinSuccess', {
+                roomId: data.roomId,
+                roomInfo: room.getRoomInfo(),
+                gameState: room.isGameStarted ? room.gameState : null
+            });
+            
+            // Notify other players
+            room.broadcastToRoom('playerJoined', {
+                roomInfo: room.getRoomInfo()
+            }, socket);
+            
+            console.log(`${data.playerName} successfully rejoined room ${data.roomId}`);
+        } else {
+            console.log('Rejoin failed - player not found in room');
+            socket.emit('rejoinFailed', { message: 'Player not found in room' });
+        }
+    });
+
     // Handle disconnect
     socket.on('disconnect', () => {
         console.log('Player disconnected:', socket.id);
         
-        // Find and remove player from any room
+        // Mark player as disconnected but don't remove immediately
+        // Give them time to reconnect (60 seconds)
         for (const [roomId, room] of rooms.entries()) {
-            if (room.removePlayer(socket.id)) {
-                if (room.players.length === 0) {
-                    // Delete empty room
-                    rooms.delete(roomId);
-                    console.log(`Room ${roomId} deleted (empty)`);
-                } else {
-                    // Notify remaining players
-                    room.broadcastToRoom('playerLeft', {
-                        roomInfo: room.getRoomInfo()
-                    });
-                }
+            const player = room.getPlayer(socket.id);
+            if (player) {
+                player.disconnected = true;
+                player.disconnectTime = Date.now();
+                
+                // Set timeout to remove player after 60 seconds
+                setTimeout(() => {
+                    const currentPlayer = room.getPlayer(socket.id);
+                    if (currentPlayer && currentPlayer.disconnected) {
+                        // Player didn't reconnect, remove them
+                        if (room.removePlayer(socket.id)) {
+                            if (room.players.length === 0) {
+                                rooms.delete(roomId);
+                                console.log(`Room ${roomId} deleted (empty)`);
+                            } else {
+                                room.broadcastToRoom('playerLeft', {
+                                    roomInfo: room.getRoomInfo()
+                                });
+                                console.log(`Player ${socket.id} removed from room ${roomId} after timeout`);
+                            }
+                        }
+                    }
+                }, 60000); // 60 seconds
+                
+                console.log(`Player ${socket.id} marked as disconnected in room ${roomId}`);
                 break;
             }
         }

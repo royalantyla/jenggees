@@ -30,12 +30,33 @@
     max-width: 100%;
   }
 
-  .card{position:relative;min-width:76px;max-width:76px;padding:12px 14px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,.04);text-align:center;font-weight:800;font-size:20px}
-  .card.red{color:#dc2626;border-color:#fecaca}
-  .card.sel{outline:3px solid #60a5fa}
+  .card{position:relative;min-width:76px;max-width:76px;padding:12px 14px;border:2px solid;border-radius:16px;background:#fff;box-shadow:0 4px 8px rgba(0,0,0,.1);text-align:center;font-weight:800;font-size:20px;transition:all 0.2s ease}
+  .card:hover{transform:translateY(-2px);box-shadow:0 6px 12px rgba(0,0,0,.15)}
+  .card.sel{outline:3px solid #fbbf24;transform:translateY(-2px);box-shadow:0 6px 12px rgba(251,191,36,.3)}
+  
+  /* Spades - Black with blue accent */
+  .card.spades{color:#1f2937;border-color:#3b82f6;background:linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)}
+  .card.spades .suit{color:#3b82f6}
+  
+  /* Hearts - Red with pink accent */
+  .card.hearts{color:#dc2626;border-color:#ec4899;background:linear-gradient(135deg, #fef2f2 0%, #fce7f3 100%)}
+  .card.hearts .suit{color:#ec4899}
+  
+  /* Diamonds - Red with orange accent */
+  .card.diamonds{color:#dc2626;border-color:#f59e0b;background:linear-gradient(135deg, #fef2f2 0%, #fef3c7 100%)}
+  .card.diamonds .suit{color:#f59e0b}
+  
+  /* Clubs - Black with green accent */
+  .card.clubs{color:#1f2937;border-color:#10b981;background:linear-gradient(135deg, #f8fafc 0%, #d1fae5 100%)}
+  .card.clubs .suit{color:#10b981}
+  
+  /* Card layout styling */
+  .card .rank{display:block;font-size:16px;font-weight:800;margin-bottom:2px}
+  .card .suit{display:block;font-size:24px;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.1)}
+  
   .meld{border:1px solid #e5e7eb;border-radius:12px;padding:8px;background:#f9fafb;margin-top:6px}
   .badge{position:absolute;left:50%;transform:translateX(-50%);bottom:-10px;background:#fde68a;color:#78350f;border:1px solid #f59e0b;border-radius:999px;padding:1px 6px;font-size:10px}
-  .wildTag{position:absolute;top:2px;right:4px;background:#a7f3d0;color:#065f46;border:1px solid #34d399;border-radius:6px;padding:1px 4px;font-size:10px;font-weight:800}
+  .wildTag{position:absolute;top:2px;right:4px;background:linear-gradient(135deg, #a7f3d0 0%, #34d399 100%);color:#065f46;border:1px solid #10b981;border-radius:6px;padding:1px 4px;font-size:10px;font-weight:800;box-shadow:0 2px 4px rgba(16,185,129,.2)}
   .btn{border:0;border-radius:10px;padding:8px 12px;background:#4f46e5;color:#fff;cursor:pointer}
   .btn.min{padding:6px 8px;font-size:12px}
   .btn.green{background:#10b981}
@@ -104,7 +125,8 @@
         <button id="createRoomBtn" class="btn green" style="width:100%;margin-bottom:6px">Buat Room Baru</button>
         <div class="sub" style="margin-bottom:6px">Atau masuk ke room yang ada:</div>
         <input id="roomIdInput" type="text" placeholder="Masukkan Room ID" style="width:100%;padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin-bottom:6px">
-        <button id="joinRoomBtn" class="btn" style="width:100%">Gabung Room</button>
+        <button id="joinRoomBtn" class="btn" style="width:100%;margin-bottom:6px">Gabung Room</button>
+        <button id="reconnectBtn" class="btn amber" style="width:100%;display:none">Reconnect ke Game Sebelumnya</button>
         </div>
       <div>
         <div class="sub" style="margin-bottom:6px">Cara Bermain Online</div>
@@ -276,45 +298,126 @@ let HUMAN_IDX=0, totalScores=[], roundNo=1, numPlayers=2;
 let selected={};
 let actionBusy=false;
 
+// Reconnection and game state persistence
+let savedGameState = null;
+let savedPlayerName = null;
+let savedTurnOrder = null;
+
 // Audio for turn notification
 let turnNotificationAudio = null;
 
-// Turn timer (20s)
+// Turn timer (60s with penalty system)
+let penaltyTimer = null;
+let penaltyDeadline = 0;
 let turnTimerId=null, turnDeadline=0;
-function clearTurnTimer(){ if(turnTimerId){ clearInterval(turnTimerId); turnTimerId=null; } }
+function clearTurnTimer(){ 
+  if(turnTimerId){ clearInterval(turnTimerId); turnTimerId=null; } 
+  if(penaltyTimer){ clearInterval(penaltyTimer); penaltyTimer=null; }
+}
+
 function startTurnTimer(){
   clearTurnTimer();
-  turnDeadline = Date.now() + 20000; // 20s
+  turnDeadline = Date.now() + 60000; // 60s
   const h=document.getElementById('hint');
+  
   function tick(){
     const ms = Math.max(0, turnDeadline - Date.now());
     const sec = Math.ceil(ms/1000);
-    if(h && cur===HUMAN_IDX && !roundOver) h.textContent = 'Waktu tersisa: '+sec+' dtk';
-    if(ms<=0){ clearTurnTimer(); onTurnTimeout(); }
+    if(h && !roundOver) {
+      const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
+      if(cur === playerIndex) {
+        h.textContent = 'Waktu tersisa: '+sec+' dtk';
+      }
+    }
+    if(ms<=0){ 
+      clearInterval(turnTimerId); 
+      turnTimerId = null;
+      onTurnTimeout(); 
+    }
   }
   turnTimerId = setInterval(tick, 250);
   tick();
 }
 async function onTurnTimeout(){
   if(roundOver) return;
-  // Jika belum ambil, ambil dari Deck bila ada (agar bisa buang)
-  if(cur===HUMAN_IDX && !hasDrawn){
-    if(deck.length){ drawDeck(); }
-    else{ /* jika deck habis, biarkan */ }
-  }
-  // Otomatis buang kartu yang tidak punya potensi melt (kecuali wild)
+  
+  const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
   const me = curPl();
-  if(cur===HUMAN_IDX && me){
-    const toDiscard = pickNonMeldCard(me.hand) || chooseDiscard(me.hand, me.hasMelded);
-    if(toDiscard){
-      selected = {}; selected[toDiscard.id]=1;
-      discardSel();
+  
+  // Auto draw from deck if not drawn yet
+  if(cur === playerIndex && !hasDrawn){
+    if(deck.length){ 
+      drawDeck(); 
+      logh(me.name + ' auto-draw dari Deck (timeout)');
     }
   }
+  
+  // Start penalty system - 10 seconds to discard or get -5 points every 10 seconds
+  startPenaltyTimer();
 }
 
-// Function to play turn notification sound
+function startPenaltyTimer() {
+  if(penaltyTimer) return; // Already started
+  
+  penaltyDeadline = Date.now() + 10000; // 10s first penalty
+  const h = document.getElementById('hint');
+  let penaltyCount = 0;
+  
+  function penaltyTick() {
+    const ms = Math.max(0, penaltyDeadline - Date.now());
+    const sec = Math.ceil(ms/1000);
+    
+    if(h && !roundOver) {
+      const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
+      if(cur === playerIndex) {
+        h.textContent = `PENALTY TIMER: ${sec} dtk (-5 poin jika tidak buang kartu)`;
+      }
+    }
+    
+    if(ms <= 0) {
+      penaltyCount++;
+      const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
+      const me = curPl();
+      
+      if(cur === playerIndex && me && !roundOver) {
+        // Apply -5 point penalty
+        if(!totalScores[cur]) totalScores[cur] = 0;
+        totalScores[cur] -= 5;
+        
+        logh(`${me.name} kena penalti -5 poin (timeout buang kartu)`);
+        
+        // Try auto-discard
+        const toDiscard = pickNonMeldCard(me.hand) || chooseDiscard(me.hand, me.hasMelded);
+        if(toDiscard) {
+          selected = {}; 
+          selected[toDiscard.id] = 1;
+          discardSel();
+          return; // Exit penalty system
+        }
+        
+        // Set next penalty in 10 seconds
+        penaltyDeadline = Date.now() + 10000;
+      } else {
+        // Turn changed, stop penalty timer
+        clearInterval(penaltyTimer);
+        penaltyTimer = null;
+      }
+    }
+  }
+  
+  penaltyTimer = setInterval(penaltyTick, 250);
+  penaltyTick();
+}
+
+
+// Function to play turn notification sound (only for current player)
 function playTurnNotificationSound() {
+  // Only play sound if it's current player's turn
+  const playerIndex = isMultiplayer ? myPlayerIndex : HUMAN_IDX;
+  if (cur !== playerIndex) {
+    return; // Not current player's turn
+  }
+  
   // Check if sound is enabled
   const soundEnabled = document.getElementById('soundEnabled');
   if (soundEnabled && !soundEnabled.checked) {
@@ -343,11 +446,22 @@ function playTurnNotificationSound() {
   }
 }
 
-
 const MSG = {
   aceFromDiscardRequiresPriorMeld: 'Set As dari buangan hanya boleh jika kamu sudah pernah MELD sebelumnya. TOLOL',
   discardMustFormMeld: 'Ambil dari buangan harus bisa melt (Run angka / Run JQK / Set As*), dengan ≥2 kartu dari tangan. *Set As hanya jika sudah pernah meld. TOLOL'
 };
+
+// Load saved data from localStorage
+function loadSavedData() {
+  const savedRoom = localStorage.getItem('currentRoomId');
+  const savedName = localStorage.getItem('savedPlayerName');
+  
+  if (savedRoom && savedName) {
+    currentRoomId = savedRoom;
+    savedPlayerName = savedName;
+    console.log('Loaded saved data:', { currentRoomId, savedPlayerName });
+  }
+}
 
 // Multiplayer functions
 function initSocket() {
@@ -356,6 +470,9 @@ function initSocket() {
     document.getElementById('statusText').textContent = 'Error: Server tidak tersedia';
     return;
   }
+  
+  // Load saved data before connecting
+  loadSavedData();
   
   try {
     socket = io({
@@ -380,6 +497,19 @@ function initSocket() {
     const connectionEl = document.getElementById('connectionStatus');
     if (statusEl) statusEl.textContent = 'Terhubung';
     if (connectionEl) connectionEl.style.display = 'block';
+    
+    // Try auto-reconnect if we have saved data
+    if (currentRoomId && savedPlayerName) {
+      console.log('Auto-reconnecting to room:', currentRoomId, 'with name:', savedPlayerName);
+      setTimeout(() => {
+        // Try rejoinRoom first, then fallback to joinRoom
+        socket.emit('rejoinRoom', { 
+          roomId: currentRoomId, 
+          playerName: savedPlayerName,
+          gameState: savedGameState
+        });
+      }, 1000); // Wait 1 second before attempting reconnect
+    }
     
     // Start heartbeat to keep connection alive
     if (heartbeatInterval) clearInterval(heartbeatInterval);
@@ -427,9 +557,14 @@ function initSocket() {
     // Update player ID
     currentPlayerId = socket.id;
     
-    // If we were in a room, try to rejoin (though room might be gone)
-    if (currentRoomId && isMultiplayer) {
-      console.log('Was in room', currentRoomId, 'but may need to rejoin manually');
+    // Try to rejoin room automatically if we were in one
+    if (currentRoomId && savedPlayerName) {
+      console.log('Attempting to rejoin room', currentRoomId, 'with name', savedPlayerName);
+      // Use joinRoom instead of rejoinRoom for simpler logic
+      socket.emit('joinRoom', { 
+        roomId: currentRoomId, 
+        playerName: savedPlayerName
+      });
     }
   });
   
@@ -442,6 +577,11 @@ function initSocket() {
     isMultiplayer = false;
     currentRoomId = null;
     roomPlayers = [];
+    savedGameState = null;
+    savedPlayerName = null;
+    // Clear localStorage
+    localStorage.removeItem('currentRoomId');
+    localStorage.removeItem('savedPlayerName');
     showMainMenu();
   });
   
@@ -454,6 +594,8 @@ function initSocket() {
   socket.on('roomCreated', (data) => {
     currentRoomId = data.roomId;
     isHost = true;
+    // Save to localStorage for persistence
+    localStorage.setItem('currentRoomId', currentRoomId);
     updateRoomInfo(data.roomInfo);
     showRoomLobby();
     addChatMessage('System', `Room ${data.roomId} berhasil dibuat!`);
@@ -462,6 +604,8 @@ function initSocket() {
   socket.on('roomJoined', (data) => {
     currentRoomId = data.roomId;
     isHost = false;
+    // Save to localStorage for persistence
+    localStorage.setItem('currentRoomId', currentRoomId);
     updateRoomInfo(data.roomInfo);
     showRoomLobby();
     addChatMessage('System', `Berhasil bergabung ke room ${data.roomId}`);
@@ -515,7 +659,53 @@ function initSocket() {
     addChatMessage(data.playerName, data.message);
   });
 
+  socket.on('rejoinSuccess', (data) => {
+    console.log('Successfully rejoined room');
+    currentRoomId = data.roomId;
+    isMultiplayer = true;
+    roomPlayers = data.roomInfo.players;
+    myPlayerIndex = roomPlayers.findIndex(p => p.id === currentPlayerId);
+    
+    if (data.gameState) {
+      // Restore game state
+      startMultiplayerGame(data.gameState);
+      showGameScreen();
+      addChatMessage('System', 'Berhasil bergabung kembali ke game!');
+    } else {
+      // Back to lobby
+      updateRoomInfo(data.roomInfo);
+      showRoomLobby();
+      addChatMessage('System', 'Berhasil bergabung kembali ke room!');
+    }
+  });
+
+  socket.on('rejoinFailed', (data) => {
+    console.log('Failed to rejoin room:', data.message);
+    
+    // Try fallback to regular joinRoom if rejoin failed
+    if (currentRoomId && savedPlayerName) {
+      console.log('Trying fallback to joinRoom');
+      socket.emit('joinRoom', { 
+        roomId: currentRoomId, 
+        playerName: savedPlayerName
+      });
+      return;
+    }
+    
+    // Clear saved state and go to main menu
+    savedGameState = null;
+    savedPlayerName = null;
+    currentRoomId = null;
+    isMultiplayer = false;
+    // Clear localStorage
+    localStorage.removeItem('currentRoomId');
+    localStorage.removeItem('savedPlayerName');
+    showMainMenu();
+    alert('Gagal bergabung kembali: ' + data.message);
+  });
+
   socket.on('error', (data) => {
+    console.log('Socket error received:', data);
     alert(data.message);
   });
 }
@@ -604,6 +794,9 @@ function addChatMessage(playerName, message) {
 }
 
 function startMultiplayerGame(gameState) {
+  // Save game state for reconnection
+  savedGameState = gameState;
+  
   // Reset game state
   lastUsedDrawnId=null; lastUsedDrawnRank=null;
   lastDrawFromDiscard=false; roundOver=false; selected={}; hasDrawn=false; mustUseDiscard=false; drawnIds={}; usedDiscardInRun=false; usedDrawnForClose=[];
@@ -633,9 +826,6 @@ function startMultiplayerGame(gameState) {
   const history = document.getElementById('history');
   if (history) history.value = '';
   
-  // Play turn notification sound for first turn
-  playTurnNotificationSound();
-  
   renderAll();
   if (cur === myPlayerIndex) {
     startTurnTimer();
@@ -645,6 +835,9 @@ function startMultiplayerGame(gameState) {
 }
 
 function syncGameState(gameState) {
+  // Save updated game state for reconnection
+  savedGameState = gameState;
+  
   // Store previous current player to detect turn changes
   const previousCurrentPlayer = cur;
   
@@ -672,8 +865,8 @@ function syncGameState(gameState) {
     });
   }
   
-  // Play turn notification sound if current player changed
-  if (previousCurrentPlayer !== cur) {
+  // Play turn notification sound if current player changed and it's now my turn
+  if (previousCurrentPlayer !== cur && cur === myPlayerIndex) {
     playTurnNotificationSound();
   }
   
@@ -707,6 +900,9 @@ function handleRemoteAction(action, playerId, data) {
     case 'gameEnd':
       handleGameEnd(data);
       break;
+    case 'gameEndSpecialWild':
+      handleGameEndSpecialWild(data);
+      break;
     case 'gameEndPenalty':
       handleGameEndPenalty(data);
       break;
@@ -737,6 +933,13 @@ function handleGameEnd(data) {
     totalScores = data.totalScores.slice();
   }
   
+  // Apply new turn order if provided
+  if (data.newTurnOrder) {
+    // Save new turn order for next game
+    savedTurnOrder = data.newTurnOrder;
+    logh('Urutan bermain untuk game berikutnya: ' + data.newTurnOrder.map(i => players[i].name).join(' → '));
+  }
+  
   // Show scoreboard
   const info = {
     closer: data.closer,
@@ -745,6 +948,33 @@ function handleGameEnd(data) {
   
   showScoreboard(data.scores, info);
   logh('Ronde selesai! Pemenang: ' + players[data.closer].name);
+}
+
+function handleGameEndSpecialWild(data) {
+  if (!isMultiplayer) return;
+  
+  // Update game state
+  roundOver = true;
+  roundNo = data.roundNo;
+  WILD_RANK = data.wildRank;
+  
+  // Update players with final state
+  if (data.players) {
+    data.players.forEach((serverPlayer, index) => {
+      if (players[index]) {
+        Object.assign(players[index], serverPlayer);
+      }
+    });
+  }
+  
+  // Update scores
+  if (data.totalScores) {
+    totalScores = data.totalScores.slice();
+  }
+  
+  // Show special wild close scoreboard
+  showSpecialWildScoreboard(data.scores, data.closer);
+  logh('Ronde selesai! ' + players[data.closer].name + ' menutup dengan wild card!');
 }
 
 function handleGameEndPenalty(data) {
@@ -1367,7 +1597,35 @@ function discardSel(){ if(actionBusy) return; actionBusy=true;
   if(mustUseDiscard && !usedDiscardInRun){ setHint('Wajib pakai kartu discard dalam RUN terlebih dahulu.'); actionBusy=false; return; }
   if(!lastDrawFromDiscard && me.hand.length===1){ setHint('Ambil dari Deck: tidak boleh habis (tidak boleh membuang kartu terakhir).'); actionBusy=false; return; }
   if(card.rank==='A' && !me.hasMelded){ setHint('Tidak boleh buang As sebelum pernah meld.'); actionBusy=false; return; }
-  if(isWildCard(card)){ logh(players[cur].name+' membuang WILD!'); endRoundPenalty(cur); actionBusy=false; return; }
+  
+  // ATURAN KHUSUS: Wild card boleh dibuang jika setelah ambil discard + meld dan hanya tersisa 1 wild
+  const isSpecialWildClose = isWildCard(card) && me.hand.length === 1 && lastDrawFromDiscard && usedDiscardInRun && me.hasMelded;
+  
+  if(isWildCard(card) && !isSpecialWildClose){ 
+    logh(players[cur].name+' membuang WILD!'); 
+    endRoundPenalty(cur); 
+    actionBusy=false; 
+    return; 
+  }
+  
+  // Jika wild card dibuang dalam kondisi khusus, lakukan penutupan khusus
+  if(isSpecialWildClose) {
+    me.hand = me.hand.filter(c=>c.id!==card.id);
+    discard.push({card,ownerIndex:cur}); 
+    selected={};
+    closingDiscardRank = card.rank;
+    
+    logh(players[cur].name+' menutup dengan membuang WILD (aturan khusus)!');
+    
+    if(isMultiplayer) {
+      broadcastAction('discard', {card: card});
+      broadcastGameState();
+    }
+    
+    endRoundSpecialWildClose(cur);
+    actionBusy=false;
+    return;
+  }
   me.hand = me.hand.filter(c=>c.id!==card.id);
   discard.push({card,ownerIndex:cur}); selected={};
   closingDiscardRank = card.rank;
@@ -1396,7 +1654,7 @@ function nextTurn(){
   lastUsedDrawnId=null; 
   lastUsedDrawnRank=null;
   
-  // Play turn notification sound
+  // Play turn notification sound for new current player
   playTurnNotificationSound();
   
   if(isMultiplayer) {
@@ -1467,6 +1725,22 @@ function endRound(info){ clearTurnTimer();
   if(totalScores.length!==players.length) totalScores=Array(players.length).fill(0);
   for(let i=0;i<players.length;i++) totalScores[i]+=pts[i];
   
+  // Determine new turn order based on lowest total score (only if someone closed by taking discard)
+  let newTurnOrder = null;
+  if(info.closer !== undefined && lastDrawFromDiscard && usedDiscardInRun) {
+    // Find player with lowest total score
+    let lowestScore = Math.min(...totalScores);
+    let lowestScorePlayer = totalScores.indexOf(lowestScore);
+    
+    // Create new turn order starting with lowest score player
+    newTurnOrder = [];
+    for(let i = 0; i < players.length; i++) {
+      newTurnOrder.push((lowestScorePlayer + i) % players.length);
+    }
+    
+    logh(`Urutan bermain baru: ${newTurnOrder.map(i => players[i].name).join(' → ')} (berdasarkan skor terendah: ${players[lowestScorePlayer].name})`);
+  }
+  
   // Broadcast game end to all players if multiplayer
   if(isMultiplayer && socket && currentRoomId) {
     const gameEndData = {
@@ -1483,7 +1757,8 @@ function endRound(info){ clearTurnTimer();
       roundNo: roundNo,
       wildRank: WILD_RANK,
       closer: info.closer,
-      closeDiscardRank: info.closeDiscardRank
+      closeDiscardRank: info.closeDiscardRank,
+      newTurnOrder: newTurnOrder
     };
     
     socket.emit('gameAction', {
@@ -1712,6 +1987,154 @@ function showPenaltyScoreboard(pts, offender) {
   }
 }
 
+function endRoundSpecialWildClose(closer){
+  clearTurnTimer();
+  roundOver=true; 
+  
+  // Auto-meld remaining cards for all players
+  for(const p of players){
+    let plan; let guard=0;
+    while((plan=anyMeld(p.hand)) && guard++<10){
+      const ids={}; plan.cards.forEach(c=>ids[c.id]=1);
+      p.hand = p.hand.filter(c=>!ids[c.id]);
+      const meld = (plan.kind==='jqk')?isJQKRun(plan.cards) :(plan.kind==='aces')?isAceSet(plan.cards) :numberRun(plan.cards);
+      if(meld){ p.melds.push(meld); p.hasMelded=true; if(meld.type!=='ace-set') p.hasNonAceMeld=true; }
+    }
+  }
+  
+  // Special scoring for wild card close
+  const pts = Array(players.length).fill(0);
+  
+  // Closer gets +250 points
+  pts[closer] = 250;
+  
+  // Apply -250 penalty to owners of cards used in melds from discard
+  if(usedDrawnForClose.length > 0) {
+    const victims = {};
+    usedDrawnForClose.forEach(ent => { 
+      if(ent.owner != null && ent.owner !== closer) {
+        victims[ent.owner] = 1; 
+      }
+    });
+    
+    for(const v in victims){
+      const victimIdx = parseInt(v, 10);
+      pts[victimIdx] = -250;
+      logh(`${players[victimIdx].name} kena penalti -250 (kartu dipakai untuk menutup dengan wild)`);
+    }
+  }
+  
+  // Update total scores
+  if(totalScores.length !== players.length) totalScores = Array(players.length).fill(0);
+  for(let i = 0; i < players.length; i++) totalScores[i] += pts[i];
+  
+  logh(`${players[closer].name} menutup dengan wild card! Bonus +250 poin`);
+  
+  // Broadcast special wild close to all players if multiplayer
+  if(isMultiplayer && socket && currentRoomId) {
+    const gameEndData = {
+      roundOver: true,
+      specialWildClose: true,
+      players: players.map((p, i) => ({
+        name: p.name,
+        hand: p.hand,
+        melds: p.melds,
+        hasMelded: p.hasMelded,
+        hasNonAceMeld: p.hasNonAceMeld
+      })),
+      scores: pts,
+      totalScores: totalScores,
+      roundNo: roundNo,
+      wildRank: WILD_RANK,
+      closer: closer
+    };
+    
+    socket.emit('gameAction', {
+      roomId: currentRoomId,
+      action: 'gameEndSpecialWild',
+      actionData: gameEndData
+    });
+  }
+  
+  // Show special scoreboard
+  showSpecialWildScoreboard(pts, closer);
+  renderAll();
+  lastUsedDrawnId=null; lastUsedDrawnRank=null;
+}
+
+function showSpecialWildScoreboard(pts, closer) {
+  const box = document.getElementById('scoreRows');
+  if (!box) return;
+  
+  // Clear existing rows except header
+  box.innerHTML = '<div class="srow head"><div>Pemain</div><div>Skor Ronde</div><div>Total</div></div>';
+  
+  players.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'srow';
+    
+    let scoreColor = '#16a34a';
+    if (pts[i] < 0) scoreColor = '#dc2626';
+    else if (pts[i] === 0) scoreColor = '#64748b';
+    
+    let specialNote = '';
+    if (i === closer) {
+      specialNote = ' (Penutup +250)';
+      row.style.backgroundColor = '#f0f9ff';
+    } else if (pts[i] === -250) {
+      specialNote = ' (Penalti -250)';
+      row.style.backgroundColor = '#fef2f2';
+    }
+    
+    row.innerHTML = `
+      <div>${p.name}${specialNote}</div>
+      <div style="color:${scoreColor}">${pts[i] >= 0 ? '+' : ''}${pts[i]}</div>
+      <div style="font-weight:600">${totalScores[i]}</div>
+    `;
+    box.appendChild(row);
+    
+    // Add detail for closer
+    if (i === closer) {
+      const detailRow = document.createElement('div');
+      detailRow.className = 'srow detail-row';
+      detailRow.style.cssText = 'background:#f0f9ff; border-top:1px solid #bfdbfe; padding:12px;';
+      
+      let html = '<div style="font-size:13px; line-height:1.4; color:#1d4ed8;">';
+      html += '<div><strong>Penutupan Khusus: Wild Card Close</strong></div>';
+      html += '<div style="margin-top:8px;">Berhasil menutup setelah ambil discard + meld dengan membuang wild card. Bonus: +250 pts</div>';
+      html += '</div>';
+      
+      detailRow.innerHTML = '<div style="grid-column: 1 / -1;">' + html + '</div>';
+      box.appendChild(detailRow);
+    }
+    
+    // Add detail for penalty victims
+    if (pts[i] === -250 && i !== closer) {
+      const detailRow = document.createElement('div');
+      detailRow.className = 'srow detail-row';
+      detailRow.style.cssText = 'background:#fef2f2; border-top:1px solid #fecaca; padding:12px;';
+      
+      let html = '<div style="font-size:13px; line-height:1.4; color:#dc2626;">';
+      html += '<div><strong>Penalti: Kartu Dipakai untuk Wild Close</strong></div>';
+      html += '<div style="margin-top:8px;">Kartu Anda dipakai oleh penutup untuk meld sebelum menutup dengan wild. Penalti: -250 pts</div>';
+      html += '</div>';
+      
+      detailRow.innerHTML = '<div style="grid-column: 1 / -1;">' + html + '</div>';
+      box.appendChild(detailRow);
+    }
+  });
+  
+  const roundInfoEl = document.getElementById('roundInfo');
+  const overlayEl = document.getElementById('overlay');
+  
+  if (roundInfoEl) {
+    roundInfoEl.textContent = `Ronde ${roundNo} • Wild: ${WILD_RANK} • Penutupan Khusus: ${players[closer].name} menutup dengan Wild Card`;
+  }
+  if (overlayEl) {
+    overlayEl.style.display = 'flex';
+  }
+}
+
 /* BOT */
 function chooseDiscard(hand,hasM){ let pool = hand.filter(c=>!isWildCard(c)); if(pool.length===0) pool=hand.slice(); pool.sort((a,b)=>baseValue(a)-baseValue(b)); for(const c of pool){ if(isWildCard(c)) continue; if(c.rank!=='A' || hasM) return c; } return pool[0]; }
 function botTakeOption(hand){
@@ -1755,22 +2178,49 @@ async function botTurn(){
   const card=chooseDiscard(me.hand,me.hasMelded); if(isWildCard(card)){ logh(me.name+' membuang WILD!'); endRoundPenalty(cur); return; }
   me.hand=me.hand.filter(c=>c.id!==card.id); discard.push({card,ownerIndex:cur}); closingDiscardRank=card.rank; logh(me.name+' buang '+card.rank+card.suit); renderAll(); if(deckEndPending){ deckEndPending=false; endRound({closer:cur, closeDiscardRank:closingDiscardRank}); return; } if(me.hand.length===0) endRound({closer:cur, closeDiscardRank:closingDiscardRank}); else nextTurn();
 }
-function maybeBot(){ 
-  const me=curPl(); 
-  if(me&&me.isBot&&document.getElementById('autoBot').checked) {
-    // Play turn notification sound for bot turn
-    playTurnNotificationSound();
-    botTurn(); 
-  }
-}
+function maybeBot(){ const me=curPl(); if(me&&me.isBot&&document.getElementById('autoBot').checked) botTurn(); }
 
 /* Render */
 function renderCardEl(card,clickable){
   const el=document.createElement('div');
-  el.className='card '+(isRed(card.suit)?'red':'')+(selected[card.id]?' sel':'');
-  el.draggable=clickable; el.dataset.id=card.id; el.textContent=card.rank+card.suit;
-  if(isWildCard(card)){ const tag=document.createElement('div'); tag.className='wildTag'; tag.textContent='WILD'; el.appendChild(tag); }
-  if(card.isWildSub){ const b=document.createElement('div'); b.className='badge'; b.textContent='WILD→'+card.substitutedTo; el.appendChild(b); }
+  
+  // Get suit class for colorful design
+  let suitClass = '';
+  switch(card.suit) {
+    case '♠': suitClass = 'spades'; break;
+    case '♥': suitClass = 'hearts'; break;
+    case '♦': suitClass = 'diamonds'; break;
+    case '♣': suitClass = 'clubs'; break;
+  }
+  
+  el.className = `card ${suitClass}${selected[card.id] ? ' sel' : ''}`;
+  el.draggable = clickable; 
+  el.dataset.id = card.id;
+  
+  // Create rank and suit elements separately for better styling
+  const rankEl = document.createElement('span');
+  rankEl.textContent = card.rank;
+  rankEl.className = 'rank';
+  
+  const suitEl = document.createElement('span');
+  suitEl.textContent = card.suit;
+  suitEl.className = 'suit';
+  
+  el.appendChild(rankEl);
+  el.appendChild(suitEl);
+  
+  if(isWildCard(card)){ 
+    const tag=document.createElement('div'); 
+    tag.className='wildTag'; 
+    tag.textContent='WILD'; 
+    el.appendChild(tag); 
+  }
+  if(card.isWildSub){ 
+    const b=document.createElement('div'); 
+    b.className='badge'; 
+    b.textContent='WILD→'+card.substitutedTo; 
+    el.appendChild(b); 
+  }
   if(clickable){
     el.addEventListener('click',()=>{ if(selected[card.id]) delete selected[card.id]; else selected[card.id]=1; renderHand(); });
     el.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain', String(card.id)); });
@@ -1886,6 +2336,22 @@ window.addEventListener('resize', ()=>{ if(document.getElementById('game').style
 
 /* Bindings */
 window.addEventListener('DOMContentLoaded',()=>{
+  // Load saved data first
+  loadSavedData();
+  
+  // Show reconnect info if available
+  if (currentRoomId && savedPlayerName) {
+    const statusEl = document.getElementById('statusText');
+    const reconnectBtn = document.getElementById('reconnectBtn');
+    const playerNameInput = document.getElementById('playerNameInput');
+    const roomIdInput = document.getElementById('roomIdInput');
+    
+    if (statusEl) statusEl.textContent = `Mencoba reconnect ke room ${currentRoomId}...`;
+    if (reconnectBtn) reconnectBtn.style.display = 'block';
+    if (playerNameInput) playerNameInput.value = savedPlayerName;
+    if (roomIdInput) roomIdInput.value = currentRoomId;
+  }
+  
   // Initialize socket connection
   setTimeout(() => {
     initSocket();
@@ -1907,6 +2373,8 @@ window.addEventListener('DOMContentLoaded',()=>{
         alert('Koneksi ke server belum tersedia');
         return;
       }
+      savedPlayerName = playerName; // Save for reconnection
+      localStorage.setItem('savedPlayerName', playerName);
       socket.emit('createRoom', { playerName: playerName });
     });
   }
@@ -1934,7 +2402,30 @@ window.addEventListener('DOMContentLoaded',()=>{
         alert('Koneksi ke server belum tersedia');
         return;
       }
+      savedPlayerName = playerName; // Save for reconnection
+      localStorage.setItem('savedPlayerName', playerName);
       socket.emit('joinRoom', { playerName: playerName, roomId: roomId });
+    });
+  }
+  
+  const reconnectBtn = document.getElementById('reconnectBtn');
+  if (reconnectBtn) {
+    reconnectBtn.addEventListener('click', () => {
+      if (!socket) {
+        alert('Koneksi ke server belum tersedia');
+        return;
+      }
+      if (!currentRoomId || !savedPlayerName) {
+        alert('Tidak ada data reconnect tersimpan');
+        return;
+      }
+      
+      console.log('Manual reconnect attempt');
+      socket.emit('rejoinRoom', { 
+        roomId: currentRoomId, 
+        playerName: savedPlayerName,
+        gameState: savedGameState
+      });
     });
   }
   
